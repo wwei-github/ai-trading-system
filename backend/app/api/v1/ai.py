@@ -1,0 +1,13 @@
+"""AI 助手接口。"""
+
+from fastapi import APIRouter
+
+from app.schemas.common import ApiResponse
+
+router = APIRouter(prefix="/ai", tags=["AI 助手"])
+
+
+@router.get("/health", summary="健康检查")
+async def health_check():
+    """AI 助手模块健康检查。"""
+    return ApiResponse(data={"status": "ok", "module": "ai"})
