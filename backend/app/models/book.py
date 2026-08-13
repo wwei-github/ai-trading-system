@@ -47,6 +47,11 @@ class Book(Base):
     # 元数据：页数、出版社、ISBN 等
     metadata_: Mapped[Optional[dict]] = mapped_column("metadata", JSONB, nullable=True)
 
+    # 解析状态：pending / parsing / completed / failed
+    parse_status: Mapped[Optional[str]] = mapped_column(
+        String(20), default="pending", nullable=True
+    )
+
 
 class BookNote(Base):
     """书籍笔记/高亮表。"""

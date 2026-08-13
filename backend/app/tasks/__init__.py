@@ -1,9 +1,11 @@
 """Celery 异步任务应用配置。
 
 使用 Redis 作为消息代理和结果后端。
+配置 Celery Beat 定时调度周期任务。
 """
 
 from celery import Celery
+from celery.schedules import crontab
 
 from app.core.config import settings
 
@@ -31,6 +33,29 @@ celery_app.conf.update(
     # 重试配置
     task_acks_late=True,
     worker_prefetch_multiplier=1,
+    # 队列配置：长任务（回测、报告）使用独立队列避免阻塞数据同步
+    task_routes={
+        "run_backtest": {"queue": "backtest"},
+        "generate_report": {"queue": "report"},
+        "parse_book": {"queue": "default"},
+        "sync_trades": {"queue": "default"},
+        "sync_asset_snapshot": {"queue": "default"},
+        "sync_all_accounts": {"queue": "default"},
+    },
+    # Celery Beat 定时调度
+    beat_schedule={
+        # 每 15 分钟同步所有活跃账号数据
+        "sync-all-accounts-every-15-min": {
+            "task": "sync_all_accounts",
+            "schedule": crontab(minute="*/15"),
+        },
+        # 每小时记录所有活跃账号资产快照（通过 sync_all_accounts 间接调用，
+        # 此处单独定义以便精细化控制，需要时启用）
+        "sync-asset-snapshot-hourly": {
+            "task": "sync_all_accounts",
+            "schedule": crontab(minute=0),
+        },
+    },
 )
 
 # 自动发现任务模块

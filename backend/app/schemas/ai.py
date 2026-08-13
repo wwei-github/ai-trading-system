@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 class AIConversationCreate(BaseModel):
     """创建 AI 会话请求。"""
 
-    mode: str = Field("general", description="会话模式")
+    mode: str = Field("general", description="会话模式：trade_analysis/strategy/book_qa/general/report")
     title: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
 
@@ -24,6 +24,7 @@ class AIConversationResponse(BaseModel):
     title: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -53,3 +54,39 @@ class AIChatResponse(BaseModel):
 
     user_message: AIMessageResponse
     assistant_message: AIMessageResponse
+
+
+class AISignalRequest(BaseModel):
+    """AI 生成交易信号请求。"""
+
+    symbol: str = Field(..., description="交易对")
+    strategy_id: Optional[uuid.UUID] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class AISignalResponse(BaseModel):
+    """AI 生成交易信号响应。"""
+
+    symbol: str
+    side: str  # buy / sell / hold
+    strength: float  # 0.0 ~ 1.0
+    reason: str
+    strategy_id: Optional[uuid.UUID] = None
+
+
+class AIReportRequest(BaseModel):
+    """AI 生成分析报告请求。"""
+
+    report_type: str = Field("trade", description="报告类型：trade/strategy/portfolio")
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    context: Optional[Dict[str, Any]] = None
+
+
+class AIReportResponse(BaseModel):
+    """AI 生成分析报告响应。"""
+
+    report_type: str
+    title: str
+    content: str
+    generated_at: datetime

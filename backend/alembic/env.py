@@ -15,7 +15,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # 将项目根目录添加到 Python 路径
-sys.path.insert(0, str(Path(__file__).resolve().parents[1))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
 from app.models import Base  # noqa: E402

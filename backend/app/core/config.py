@@ -19,28 +19,50 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     API_PREFIX: str = "/api/v1"
 
-    # 数据库
+    # 数据库（PostgreSQL 异步驱动 asyncpg）
     DATABASE_URL: str = (
-        "postgresql+asyncpg://trading:trading@localhost:5432/trading"
+        "postgresql+asyncpg://trading:trading@localhost:15432/trading"
     )
 
-    # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    # Redis（缓存 + Celery 消息代理 + 结果后端）
+    REDIS_URL: str = "redis://localhost:16379/0"
 
     # 安全配置
     SECRET_KEY: str = "dev-secret-key-change-in-production"
 
-    # 加密密钥（AES-256，32 字节十六进制字符串）
+    # 加密密钥（用于派生 Fernet 密钥，生产环境必须更换）
     ENCRYPTION_KEY: str = "0123456789abcdef0123456789abcdef"
 
     # CORS 跨域配置
-    CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:5173"]
+    CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:38000"]
 
     # 数据库连接池
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 3600
+
+    # 默认用户 ID（无认证场景下，所有数据归属于此用户）
+    # 启动时若不存在会自动创建
+    DEFAULT_USER_ID: str = "00000000-0000-0000-0000-000000000001"
+    DEFAULT_USER_EMAIL: str = "admin@trading.local"
+    DEFAULT_USER_NICKNAME: str = "Trader"
+
+    # 文件上传配置
+    UPLOAD_DIR: str = "uploads"
+    MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
+
+    # LLM 配置（OpenAI 兼容接口）
+    LLM_PROVIDER: str = "openai"  # openai / anthropic / custom
+    LLM_API_KEY: str = ""
+    LLM_BASE_URL: str = "https://api.openai.com/v1"
+    LLM_MODEL: str = "gpt-4o-mini"
+    LLM_TEMPERATURE: float = 0.7
+    LLM_MAX_TOKENS: int = 2000
+
+    # Embedding 配置（用于书籍 RAG）
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIMENSION: int = 1536
 
     model_config = SettingsConfigDict(
         env_file=".env",

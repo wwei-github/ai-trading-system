@@ -1,7 +1,8 @@
 """策略 Schema。"""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field
@@ -52,9 +53,9 @@ class BacktestBase(BaseModel):
     strategy_id: uuid.UUID
     symbol: str
     timeframe: str = "1d"
-    start_date: str
-    end_date: str
-    initial_capital: float = 10000.0
+    start_date: date
+    end_date: date
+    initial_capital: Decimal = Decimal("10000.00")
     params: Optional[Dict[str, Any]] = None
 
 
@@ -71,12 +72,34 @@ class BacktestResponse(BaseModel):
     strategy_id: uuid.UUID
     symbol: str
     timeframe: str
-    start_date: str
-    end_date: str
-    initial_capital: float
+    start_date: date
+    end_date: date
+    initial_capital: Decimal
     params: Optional[Dict[str, Any]] = None
     result: Optional[Dict[str, Any]] = None
     status: str
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class PaperTradeRequest(BaseModel):
+    """模拟交易请求。"""
+
+    symbol: str
+    side: str  # buy / sell
+    amount: float
+    price: Optional[float] = None
+
+
+class LiveTradeRequest(BaseModel):
+    """实盘交易请求（需二次确认）。"""
+
+    symbol: str
+    side: str  # buy / sell
+    order_type: str = "market"  # market / limit
+    amount: float
+    price: Optional[float] = None
+    account_id: uuid.UUID
+    confirm: bool = Field(False, description="必须为 true 才会执行实盘下单")

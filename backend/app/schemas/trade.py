@@ -54,3 +54,40 @@ class TradeTagUpdate(BaseModel):
 
     tags: List[str] = Field(default_factory=list)
     note: Optional[str] = None
+
+
+class TradeImportItem(BaseModel):
+    """批量导入的单条交易记录。"""
+
+    exchange: str
+    symbol: str
+    market_type: str = "spot"
+    side: str
+    order_type: str = "market"
+    price: Decimal
+    quantity: Decimal
+    leverage: Optional[int] = None
+    fee: Optional[Decimal] = None
+    fee_currency: Optional[str] = None
+    status: str = "filled"
+    strategy_id: Optional[uuid.UUID] = None
+    tags: Optional[List[str]] = None
+    note: Optional[str] = None
+    exchange_order_id: Optional[str] = None
+    executed_at: datetime
+
+
+class TradeImportRequest(BaseModel):
+    """批量导入交易记录请求。"""
+
+    account_id: uuid.UUID
+    trades: List[TradeImportItem]
+
+
+class TradeImportResponse(BaseModel):
+    """批量导入交易记录响应。"""
+
+    total: int
+    imported: int
+    skipped: int
+    errors: List[str] = Field(default_factory=list)

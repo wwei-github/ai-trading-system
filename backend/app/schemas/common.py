@@ -37,3 +37,8 @@ class PaginationParams(BaseModel):
 
     page: int = 1
     page_size: int = 20
+
+
+def success(data: Optional[T] = None, message: str = "ok") -> dict:
+    """快速构造成功响应字典。"""
+    return {"code": 0, "message": message, "data": data}
