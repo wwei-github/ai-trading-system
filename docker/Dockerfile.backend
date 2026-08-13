@@ -1,17 +1,22 @@
+# 后端 API + Celery 共用镜像
+# 一次构建，backend / celery-worker / celery-beat 三个服务复用
 FROM python:3.9-slim
 
 WORKDIR /app
 
-# 安装系统依赖
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# 使用国内镜像源加速 apt 安装
+RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || true && \
+    apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
-COPY backend/requirements.txt ./
+# 使用国内镜像源加速 pip 安装
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip config set global.trusted-host mirrors.aliyun.com
 
-# 安装 Python 依赖
+# 复制依赖文件并安装（此层缓存率高，代码变更不触发重装）
+COPY backend/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 复制源码
@@ -19,4 +24,5 @@ COPY backend/ ./
 
 EXPOSE 8000
 
+# 默认启动后端 API，celery 服务在 docker-compose 中用 command 覆盖
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

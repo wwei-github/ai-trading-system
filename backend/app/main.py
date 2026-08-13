@@ -21,18 +21,17 @@ from app.core.logging import setup_logging
 
 async def _initialize_storage() -> None:
     """启动时数据库初始化：
-    - SQLite：自动 CREATE ALL 建表（local 模式零依赖）
-    - PostgreSQL：假设已由 alembic upgrade head 建表，只做默认用户补齐
-    - 任何数据库：若默认用户不存在，自动创建
+    - 所有模式：自动 CREATE ALL 建表（幂等，只建不存在的表）
+    - 所有模式：若默认用户不存在，自动创建
+    - PostgreSQL 场景下如需版本化迁移，可额外使用 alembic
     """
     from app.core.database import async_session_maker, engine
     from app.models import Base, User
 
-    # SQLite：自动建表
-    if settings.uses_sqlite():
-        logger.info("RUN_MODE=local，使用 SQLite 自动建表")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    # 自动建表（SQLite / PostgreSQL 均执行，幂等）
+    logger.info("数据库建表: create_all (幂等) | RUN_MODE={}", settings.RUN_MODE)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
     # 自动补齐默认用户
     async with async_session_maker() as session:

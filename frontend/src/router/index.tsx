@@ -18,7 +18,7 @@ const SuspenseWrapper = ({ children }: { children: React.ReactNode }) => (
   <Suspense
     fallback={
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 200 }}>
-        <Spin size="large" tip="加载中..." />
+        <Spin size="large" />
       </div>
     }
   >

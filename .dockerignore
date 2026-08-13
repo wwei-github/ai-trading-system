@@ -1,0 +1,55 @@
+# .dockerignore - 减少构建上下文，只发送必要文件给 Docker daemon
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python 虚拟环境 & 缓存
+backend/venv/
+backend/.venv/
+backend/__pycache__/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/trading.db*
+
+# Node 依赖 & 构建产物
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Docker 自身（保留 docker/nginx.conf 等配置文件供构建使用）
+docker-compose.yml
+Dockerfile*
+
+# 文档
+docs/
+*.md
+!frontend/README.md
+!backend/README.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 环境变量（真实值不进镜像，由 docker-compose environment 注入）
+**/.env
+**/.env.local
+**/.env.docker
+**/.env.online
+
+# 上传文件 & 日志
+backend/uploads/
+*.log
+logs/

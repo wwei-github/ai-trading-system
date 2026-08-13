@@ -1,7 +1,7 @@
 version: "3.9"
 
 services:
-  # 前端应用
+  # 前端应用 (Nginx 静态资源 + API 反代)
   frontend:
     build:
       context: .
@@ -11,7 +11,7 @@ services:
     depends_on:
       - backend
 
-  # 后端 API
+  # 后端 API (backend / celery 共用同一镜像，只构建一次)
   backend:
     build:
       context: .
@@ -20,32 +20,45 @@ services:
       - "18000:8000"
     env_file:
       - backend/.env
+    environment:
+      # 显式覆盖为 docker 模式，使用容器网络内的服务名
+      RUN_MODE: docker
+      DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
-  # Celery Worker
+  # Celery Worker (复用 backend 镜像，覆盖启动命令)
   celery-worker:
     build:
       context: .
-      dockerfile: docker/Dockerfile.celery
+      dockerfile: docker/Dockerfile.backend
     command: celery -A app.tasks worker --loglevel=info --concurrency=4
     env_file:
       - backend/.env
+    environment:
+      RUN_MODE: docker
+      DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis
       - postgres
 
-  # Celery Beat (定时任务)
+  # Celery Beat (复用 backend 镜像，覆盖启动命令)
   celery-beat:
     build:
       context: .
-      dockerfile: docker/Dockerfile.celery
+      dockerfile: docker/Dockerfile.backend
     command: celery -A app.tasks beat --loglevel=info
     env_file:
       - backend/.env
+    environment:
+      RUN_MODE: docker
+      DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       - redis
 
