@@ -10,7 +10,11 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+# 仅忽略含本地真实值的 *.local，不豁免 .env.*.example
+# （注意：.env.local.example 中的 .example 后缀已在根目录 .gitignore 显式豁免，
+#  此处为防止 *.local 规则意外吞掉 .env.local.example）
 *.local
+!.env.*.example
 
 # Editor directories and files
 .vscode/*
