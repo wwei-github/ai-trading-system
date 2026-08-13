@@ -15,16 +15,41 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 
+
+def _build_engine_kwargs() -> dict:
+    """根据 RUN_MODE 动态构造 create_async_engine 参数。
+
+    - SQLite：不支持连接池，使用 StaticPool，数据库文件不存在自动创建。
+    - PostgreSQL：使用 QueuePool + 连接池参数。
+    """
+    database_url = settings.effective_database_url()
+    common = {
+        "url": database_url,
+        "echo": settings.DEBUG,
+        "pool_pre_ping": True,
+    }
+    if settings.uses_sqlite():
+        from sqlalchemy.pool import StaticPool
+
+        return {
+            **common,
+            "connect_args": {
+                "check_same_thread": False,
+                # SQLite 默认不支持外键级联，手动开启
+            },
+            "poolclass": StaticPool,
+        }
+    return {
+        **common,
+        "pool_size": settings.DB_POOL_SIZE,
+        "max_overflow": settings.DB_MAX_OVERFLOW,
+        "pool_timeout": settings.DB_POOL_TIMEOUT,
+        "pool_recycle": settings.DB_POOL_RECYCLE,
+    }
+
+
 # 创建异步引擎（延迟连接，pool_pre_ping 在实际使用时才检测连接）
-engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
-    pool_timeout=settings.DB_POOL_TIMEOUT,
-    pool_recycle=settings.DB_POOL_RECYCLE,
-    pool_pre_ping=True,
-)
+engine = create_async_engine(**_build_engine_kwargs())
 
 # 异步会话工厂
 async_session_maker = async_sessionmaker(

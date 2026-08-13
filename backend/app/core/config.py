@@ -19,12 +19,22 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     API_PREFIX: str = "/api/v1"
 
-    # 数据库（PostgreSQL 异步驱动 asyncpg）
+    # 运行模式：
+    #   - local    ：本地开发（SQLite + 内存缓存，不需要 Docker）
+    #   - docker   ：Docker Compose 部署（PostgreSQL + Redis）
+    #   - online   ：线上部署（PostgreSQL + Redis，由运维配置）
+    RUN_MODE: str = "local"
+
+    # 数据库（SQLite 或 PostgreSQL）
+    # RUN_MODE=local 时，默认回退到 SQLite，可直接跑通后端；
+    # RUN_MODE=docker/online 时，需要显式配置 PostgreSQL 地址。
     DATABASE_URL: str = (
         "postgresql+asyncpg://trading:trading@localhost:15432/trading"
     )
 
     # Redis（缓存 + Celery 消息代理 + 结果后端）
+    # RUN_MODE=local 时，默认通过 fakeredis / 内存实现降级（在代码中自动判断），
+    # 但如果设置了真实的 REDIS_URL，依然会使用真实 Redis。
     REDIS_URL: str = "redis://localhost:16379/0"
 
     # 安全配置
@@ -70,6 +80,30 @@ class Settings(BaseSettings):
         case_sensitive=True,
         extra="ignore",
     )
+
+    # ---------- 运行模式派生规则 ----------
+
+    def effective_database_url(self) -> str:
+        """根据 RUN_MODE 派生实际数据库 URL。
+
+        RUN_MODE=local 且未配置 PostgreSQL 时，回退到 SQLite（aiosqlite），
+        从而不需要 Docker 也能直接启动后端。
+        """
+        # 如果用户显式设置了非默认的 PostgreSQL URL，优先使用用户配置
+        default_pg = "postgresql+asyncpg://trading:trading@localhost:15432/trading"
+        if self.RUN_MODE == "local" and self.DATABASE_URL == default_pg:
+            import os
+
+            db_file = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "..", "..", "trading.db")
+            )
+            # 异步 SQLite 使用 aiosqlite 驱动（注意 +aiosqlite 后缀）
+            return f"sqlite+aiosqlite:///{db_file}"
+        return self.DATABASE_URL
+
+    def uses_sqlite(self) -> bool:
+        """判断是否正在使用 SQLite（影响某些特性，如 pgvector）。"""
+        return self.effective_database_url().startswith("sqlite")
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

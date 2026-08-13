@@ -2,9 +2,37 @@ import axios, { type AxiosResponse, type InternalAxiosRequestConfig } from 'axio
 import { message } from 'antd';
 import type { ApiResponse } from '@/types/api';
 
+/**
+ * 根据运行模式与环境变量确定实际 baseURL。
+ *
+ * 规则：
+ * - local / docker 模式：VITE_API_BASE_URL 默认 /api/v1，请求由 Vite 代理转发
+ * - online 模式：
+ *     VITE_USE_PROXY=true（默认）→ 依旧 /api/v1 走 Vite 代理
+ *     VITE_USE_PROXY=false        → 拼接 VITE_API_ONLINE_URL 直接跨域调用
+ */
+function resolveBaseURL(): string {
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+  const useProxy = import.meta.env.VITE_USE_PROXY !== 'false';
+
+  if (!useProxy && import.meta.env.VITE_API_ONLINE_URL) {
+    // 去重 URL 末尾斜杠，避免拼成 https://host//api/v1
+    const prefix = import.meta.env.VITE_API_ONLINE_URL.endsWith('/')
+      ? import.meta.env.VITE_API_ONLINE_URL.slice(0, -1)
+      : import.meta.env.VITE_API_ONLINE_URL;
+    const suffix = baseUrl.startsWith('/') ? baseUrl : `/${baseUrl}`;
+    return `${prefix}${suffix}`;
+  }
+
+  return baseUrl;
+}
+
+/** 当前运行模式，用于调试或 UI 展示。 */
+export const RUN_MODE: string = (import.meta.env.VITE_RUN_MODE || 'local').toString();
+
 // 创建 axios 实例
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
+  baseURL: resolveBaseURL(),
   timeout: 15000,
 });
 

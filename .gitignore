@@ -26,6 +26,13 @@ backend/app/__pycache__/
 .env.local
 .env.*.local
 !.env.example
+!.env.docker
+!.env.online
+
+# SQLite 本地数据库文件
+*.db
+*.sqlite3
+backend/trading.db*
 
 # IDE
 .idea/
