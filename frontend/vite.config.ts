@@ -8,7 +8,6 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   const proxyTarget = env.VITE_PROXY_TARGET || 'http://localhost:18000';
-  const apiBaseUrl = env.VITE_API_BASE_URL || '/api/v1';
   const useProxy = env.VITE_USE_PROXY !== 'false'; // 默认 true（除 online 显式设 false）
 
   // online 模式且 VITE_USE_PROXY=false 时，关闭本地代理（直接跨域调用完整 URL）

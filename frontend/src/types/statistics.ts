@@ -1,89 +1,68 @@
-// 统计概览数据
+// 交易汇总统计（匹配后端 TradeSummary）
 export interface OverviewData {
-  total_asset: number;
-  available_balance: number;
-  frozen_balance: number;
-  today_profit: number;
-  total_profit: number;
-  today_trade_count: number;
-  today_trade_amount: number;
-  active_coin_count: number;
-  win_rate: number;
+  total_trades: number;
+  total_volume: number;
+  total_fee: number;
+  buy_count: number;
+  sell_count: number;
+  win_rate?: number;
+  profit_loss?: number;
+  total_asset?: number;
+  available_balance?: number;
+  frozen_balance?: number;
+  total_profit?: number;
+  today_profit?: number;
+  today_trade_count?: number;
+  today_trade_amount?: number;
+  active_coin_count?: number;
 }
 
-// 收益趋势数据点
+// 按周期统计的盈亏（匹配后端 PnLByPeriod）
 export interface ProfitTrendPoint {
+  period: string;
+  pnl: number;
+  trade_count: number;
+  date?: string;
+  total_asset?: number;
+}
+
+// 资产趋势（匹配后端 AssetTrend）
+export interface AssetTrendPoint {
   date: string;
-  total_asset: number;
-  profit: number;
-  profit_rate: number;
+  total_usd: number;
+}
+
+// 币种统计（匹配后端 CoinStat）
+export interface CoinRankingItem {
+  symbol: string;
+  trade_count: number;
+  total_volume: number;
+  total_fee: number;
+  net_pnl?: number;
+  win_rate?: number;
 }
 
 // 收益趋势查询参数
 export interface ProfitTrendParams {
-  range?: '7d' | '30d' | '90d' | '1y' | 'custom';
+  period?: 'daily' | 'weekly' | 'monthly';
+  range?: '7d' | '30d' | '90d';
   start_date?: string;
   end_date?: string;
-  account_id?: number;
+  symbol?: string;
 }
 
-// 资产分布项
-export interface AssetDistributionItem {
-  name: string;
-  value: number;
-  percentage: number;
-}
-
-// 交易统计
-export interface TradeStatsData {
-  buy_count: number;
-  sell_count: number;
-  buy_amount: number;
-  sell_amount: number;
-  symbol_stats: Array<{ symbol: string; count: number; amount: number }>;
-}
-
-// 币种排行项
-export interface CoinRankingItem {
-  symbol: string;
-  total_profit: number;
-  trade_count: number;
-  win_rate: number;
-  profit_rate: number;
-}
-
-// 月度报表项
-export interface MonthlyReportItem {
-  month: string;
-  profit: number;
-  trade_count: number;
-  win_rate: number;
-}
-
-// 胜率走势点
-export interface WinRateTrendPoint {
-  date: string;
-  win_rate: number;
-  trade_count: number;
-}
-
-// 回撤曲线点
-export interface DrawdownPoint {
-  date: string;
-  drawdown: number;
-  max_drawdown: number;
-}
-
-// 盈亏分布项
-export interface ProfitDistributionItem {
-  range: string;
-  count: number;
-}
-
-// 统计查询基础参数
+// 统计查询基础参数（匹配后端 StatisticsQueryParams）
 export interface StatsQueryParams {
   start_date?: string;
   end_date?: string;
-  account_id?: number;
-  exchange?: string;
+  account_id?: string;
+  symbol?: string;
 }
+
+// 兼容旧引用（Dashboard 中使用）
+export type AssetDistributionItem = AssetTrendPoint;
+export type TradeStatsData = OverviewData;
+export type MonthlyReportItem = ProfitTrendPoint;
+export type WinRateTrendPoint = ProfitTrendPoint;
+export type DrawdownPoint = ProfitTrendPoint;
+export type ProfitDistributionItem = CoinRankingItem;

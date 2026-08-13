@@ -1,69 +1,96 @@
 import type { PageParams } from './api';
 
-// 交易方向
+// 交易方向（匹配后端 side 字段）
 export type TradeDirection = 'buy' | 'sell';
 
 // 交易标签
 export interface TradeTag {
-  id: number;
+  id: string;
   name: string;
   color?: string;
-  created_at: string;
 }
 
-// 交易记录实体
+// 交易记录实体（匹配后端 TradeResponse）
 export interface Trade {
-  id: number;
-  account_id: number;
-  account_alias?: string;
-  exchange?: string;
+  id: string;
+  user_id: string;
+  account_id: string;
+  exchange: string;
   symbol: string;
-  direction: TradeDirection;
-  amount: number;
+  market_type: string;
+  side: TradeDirection;
+  direction?: TradeDirection;
+  order_type: string;
   price: number;
-  total: number;
-  fee: number;
-  fee_currency?: string;
-  profit?: number;
-  trade_time: string;
-  tags?: TradeTag[];
-  remark?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-// 新增/编辑交易表单
-export interface TradeFormData {
-  account_id: number;
-  symbol: string;
-  direction: TradeDirection;
-  amount: number;
-  price: number;
+  quantity: number;
+  amount?: number;
+  leverage?: number;
   fee?: number;
   fee_currency?: string;
-  trade_time: string;
-  tag_ids?: number[];
+  status: string;
+  strategy_id?: string;
+  tags?: string[];
+  note?: string;
   remark?: string;
+  total?: number;
+  profit?: number;
+  account_alias?: string;
+  trade_time?: string;
+  exchange_order_id?: string;
+  executed_at: string;
+  created_at: string;
 }
 
-// 交易记录查询参数
+// 新增/编辑交易表单（匹配后端 TradeImportItem）
+export interface TradeFormData {
+  account_id: string;
+  exchange: string;
+  symbol: string;
+  market_type?: string;
+  side: TradeDirection;
+  direction?: TradeDirection;
+  order_type?: string;
+  price: number;
+  quantity: number;
+  amount?: number;
+  leverage?: number;
+  fee?: number;
+  fee_currency?: string;
+  status?: string;
+  strategy_id?: string;
+  tags?: string[];
+  tag_ids?: string[];
+  note?: string;
+  remark?: string;
+  exchange_order_id?: string;
+  executed_at: string;
+  trade_time?: string;
+}
+
+// 交易记录查询参数（匹配后端 TradeQueryParams）
 export interface TradeListParams extends PageParams {
-  account_id?: number;
   exchange?: string;
   symbol?: string;
+  side?: TradeDirection;
   direction?: TradeDirection;
-  tag_id?: number;
+  status?: string;
+  strategy_id?: string;
+  start_date?: string;
+  end_date?: string;
   start_time?: string;
   end_time?: string;
   keyword?: string;
+  account_id?: string;
 }
 
-// 批量导入结果
+// 批量导入结果（匹配后端 TradeImportResponse）
 export interface BatchImportResult {
   total: number;
-  success: number;
-  failed: number;
-  errors: Array<{ row: number; message: string }>;
+  imported: number;
+  success?: number;
+  skipped: number;
+  failed?: number;
+  errors: string[];
 }
 
 // 方向映射

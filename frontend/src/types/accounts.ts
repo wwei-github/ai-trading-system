@@ -6,35 +6,37 @@ export type ExchangeType = 'binance' | 'okx' | 'bybit' | 'huobi' | 'kucoin' | 'o
 // 账号状态
 export type AccountStatus = 'normal' | 'abnormal' | 'syncing' | 'disabled';
 
-// 交易所账号实体
+// 交易所账号实体（匹配后端 ExchangeAccountResponse）
 export interface Account {
-  id: number;
-  exchange: ExchangeType;
-  alias: string;
-  api_key: string;
-  status: AccountStatus;
-  total_asset: number;
-  available_balance: number;
-  frozen_balance: number;
-  last_sync_at: string;
-  remark?: string;
+  id: string;
+  user_id: string;
+  exchange: string;
+  label: string;
+  permissions?: string[];
+  is_testnet: boolean;
+  status: string;
+  last_sync_at?: string;
   created_at: string;
   updated_at: string;
 }
 
-// 新增账号表单
+// 新增账号表单（匹配后端 ExchangeAccountCreate）
 export interface AccountCreateData {
-  exchange: ExchangeType;
-  alias: string;
+  exchange: string;
+  label: string;
   api_key: string;
-  secret: string;
+  api_secret: string;
   passphrase?: string;
-  remark?: string;
+  permissions?: string[];
+  is_testnet?: boolean;
 }
 
-// 编辑账号表单
-export interface AccountUpdateData extends Partial<Omit<AccountCreateData, 'secret'>> {
-  secret?: string;
+// 编辑账号表单（匹配后端 ExchangeAccountUpdate）
+export interface AccountUpdateData {
+  label?: string;
+  permissions?: string[];
+  is_testnet?: boolean;
+  status?: string;
 }
 
 // 连接测试结果
@@ -47,8 +49,8 @@ export interface ConnectionTestResult {
 
 // 账号列表查询参数
 export interface AccountListParams extends PageParams {
-  exchange?: ExchangeType;
-  status?: AccountStatus;
+  exchange?: string;
+  status?: string;
   keyword?: string;
 }
 
@@ -63,7 +65,7 @@ export const EXCHANGE_OPTIONS: Array<{ value: ExchangeType; label: string; color
 ];
 
 // 状态映射
-export const ACCOUNT_STATUS_MAP: Record<AccountStatus, { text: string; color: string }> = {
+export const ACCOUNT_STATUS_MAP: Record<string, { text: string; color: string }> = {
   normal: { text: '正常', color: 'success' },
   abnormal: { text: '异常', color: 'error' },
   syncing: { text: '同步中', color: 'processing' },

@@ -30,75 +30,116 @@ import {
   AmountText,
 } from '@/components/Common';
 import { LineChart, PieChart } from '@/components/Chart';
+import type { PieChartData } from '@/components/Chart';
 import { statisticsApi, accountApi } from '@/api';
-import type { ProfitTrendParams, AssetDistributionItem } from '@/types';
+import { EXCHANGE_OPTIONS } from '@/types';
 
 const { useBreakpoint } = Grid;
 const { Text, Paragraph } = Typography;
 
-type TrendRange = NonNullable<ProfitTrendParams['range']>;
-
-const RANGE_OPTIONS = [
-  { label: '近 7 日', value: '7d' as TrendRange },
-  { label: '近 30 日', value: '30d' as TrendRange },
-  { label: '近 90 日', value: '90d' as TrendRange },
+const DAYS_OPTIONS = [
+  { label: '近 7 日', value: 7 },
+  { label: '近 30 日', value: 30 },
+  { label: '近 90 日', value: 90 },
 ];
 
 const DashboardPage = () => {
   const navigate = useNavigate();
   const screens = useBreakpoint();
-  const [trendRange, setTrendRange] = useState<TrendRange>('30d');
+  const [trendDays, setTrendDays] = useState<number>(30);
 
-  // ========== 查询：概览 + 趋势 + 分布 + 账号列表 ==========
-  const overviewQ = useQuery({
-    queryKey: ['statistics', 'overview'],
-    queryFn: () => statisticsApi.getOverview(),
+  // ========== 查询：汇总 + 资产趋势 + 盈亏趋势 + 交易所分布 + 币种排名 + 账号列表 ==========
+  const summaryQ = useQuery({
+    queryKey: ['statistics', 'summary'],
+    queryFn: () => statisticsApi.getSummary(),
   });
 
-  const trendQ = useQuery({
-    queryKey: ['statistics', 'profit-trend', trendRange],
-    queryFn: () => statisticsApi.getProfitTrend({ range: trendRange }),
+  const assetTrendQ = useQuery({
+    queryKey: ['statistics', 'asset-trend', trendDays],
+    queryFn: () => statisticsApi.getAssetTrend({ days: trendDays }),
   });
 
-  const distributionQ = useQuery({
-    queryKey: ['statistics', 'asset-distribution'],
-    queryFn: () => statisticsApi.getAssetDistribution(),
+  const pnlQ = useQuery({
+    queryKey: ['statistics', 'pnl', 'daily'],
+    queryFn: () => statisticsApi.getPnl({ period: 'daily' }),
+  });
+
+  const exchangeDistQ = useQuery({
+    queryKey: ['statistics', 'exchange-distribution'],
+    queryFn: () => statisticsApi.getExchangeDistribution(),
+  });
+
+  const coinRankingQ = useQuery({
+    queryKey: ['statistics', 'coin-ranking'],
+    queryFn: () => statisticsApi.getCoinRanking(),
   });
 
   const accountsQ = useQuery({
     queryKey: ['accounts', 'overview-list'],
-    queryFn: () => accountApi.getList({ page: 1, page_size: 50 }),
+    queryFn: () => accountApi.getList(),
   });
 
-  const overview = overviewQ.data;
+  const overview = summaryQ.data;
+  const accounts = accountsQ.data || [];
+  const winRatePct = (overview?.win_rate ?? 0) * 100;
 
-  // ========== 资产趋势图表数据 ==========
-  const lineChartProps = useMemo(() => {
-    const data = trendQ.data || [];
-    const categories = data.map((p) => p.date.slice(5)); // MM-DD
+  // ========== 资产净值趋势图表数据 ==========
+  const assetLineProps = useMemo(() => {
+    const data = assetTrendQ.data || [];
+    const categories = data.map((p) => p.date.slice(5, 10)); // MM-DD
     return {
       categories,
       series: [
         {
           name: '资产净值',
-          data: data.map((p) => p.total_asset),
+          data: data.map((p) => Number(p.total_usd)),
           color: '#1677ff',
           area: true,
         },
       ],
-      loading: trendQ.isLoading,
-      valueSuffix: ' USDT',
+      loading: assetTrendQ.isLoading,
+      valueSuffix: ' USD',
       height: 340,
-      yAxisName: '净值',
-      xAxisName: trendRange === '7d' ? '日期（近7日）' : '日期',
+      yAxisName: '净值 (USD)',
+      xAxisName: `日期（近 ${trendDays} 日）`,
     };
-  }, [trendQ.data, trendQ.isLoading, trendRange]);
+  }, [assetTrendQ.data, assetTrendQ.isLoading, trendDays]);
 
-  // ========== 资产分布饼图 ==========
-  const pieChartData: AssetDistributionItem[] = useMemo(
-    () => distributionQ.data || [],
-    [distributionQ.data],
-  );
+  // ========== 盈亏趋势图表数据（双轴：盈亏 + 交易笔数） ==========
+  const pnlLineProps = useMemo(() => {
+    const data = pnlQ.data || [];
+    const categories = data.map((p) => p.period.slice(5, 10)); // MM-DD
+    return {
+      categories,
+      series: [
+        {
+          name: '盈亏',
+          data: data.map((p) => Number(p.pnl)),
+          color: '#1677ff',
+          area: true,
+        },
+        {
+          name: '交易笔数',
+          data: data.map((p) => p.trade_count),
+          color: '#fa8c16',
+          yAxisIndex: 1,
+        },
+      ],
+      loading: pnlQ.isLoading,
+      height: 300,
+      yAxisName: ['盈亏 (USDT)', '笔数'] as [string, string],
+      valueSuffix: '',
+    };
+  }, [pnlQ.data, pnlQ.isLoading]);
+
+  // ========== 交易所分布饼图数据 ==========
+  const pieData: PieChartData[] = useMemo(() => {
+    const dist = exchangeDistQ.data || {};
+    return Object.entries(dist).map(([key, value]) => {
+      const opt = EXCHANGE_OPTIONS.find((o) => o.value === key);
+      return { name: opt?.label ?? key, value: Number(value) };
+    });
+  }, [exchangeDistQ.data]);
 
   // ========== 快捷入口配置 ==========
   const quickEntries = [
@@ -148,32 +189,19 @@ const DashboardPage = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} sm={12} lg={6}>
           <StatisticCard
-            title="总资产"
-            value={overview?.total_asset ?? 0}
-            loading={overviewQ.isLoading}
+            title="成交总额"
+            value={Number(overview?.total_volume ?? 0)}
+            loading={summaryQ.isLoading}
             suffix=" USDT"
             icon={<WalletOutlined />}
             iconBgColor="#1677ff"
-            tooltip="所有已绑定交易所账号的合计资产"
-            delta={overview?.today_profit}
-            deltaText="今日盈亏"
+            tooltip="所有交易的总成交额"
             precision={2}
-          />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <StatisticCard
-            title="可用余额"
-            value={overview?.available_balance ?? 0}
-            loading={overviewQ.isLoading}
-            suffix=" USDT"
-            icon={<DashboardOutlined />}
-            iconBgColor="#52c41a"
-            delta={undefined}
             footer={
               <Text type="secondary" style={{ fontSize: 12 }}>
-                冻结：
+                总手续费：
                 <AmountText
-                  value={overview?.frozen_balance ?? 0}
+                  value={overview?.total_fee ?? 0}
                   precision={2}
                   suffix=" USDT"
                 />
@@ -184,27 +212,27 @@ const DashboardPage = () => {
         <Col xs={24} sm={12} lg={6}>
           <StatisticCard
             title="累计盈亏"
-            value={overview?.total_profit ?? 0}
-            loading={overviewQ.isLoading}
+            value={Number(overview?.profit_loss ?? 0)}
+            loading={summaryQ.isLoading}
             suffix=" USDT"
             colored
+            showSign
             icon={
-              (overview?.total_profit ?? 0) >= 0 ? (
+              (overview?.profit_loss ?? 0) >= 0 ? (
                 <RiseOutlined />
               ) : (
                 <FallOutlined />
               )
             }
-            iconBgColor={(overview?.total_profit ?? 0) >= 0 ? '#52c41a' : '#ff4d4f'}
-            delta={overview ? overview.win_rate * 100 : 0}
-            deltaText={`胜率 ${(overview?.win_rate ?? 0).toFixed(2)}%`}
+            iconBgColor={(overview?.profit_loss ?? 0) >= 0 ? '#52c41a' : '#ff4d4f'}
+            deltaText={`历史胜率 ${winRatePct.toFixed(2)}%`}
           />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatisticCard
-            title="今日交易"
-            value={overview?.today_trade_count ?? 0}
-            loading={overviewQ.isLoading}
+            title="交易笔数"
+            value={overview?.total_trades ?? 0}
+            loading={summaryQ.isLoading}
             suffix=" 笔"
             precision={0}
             icon={<SwapOutlined />}
@@ -212,16 +240,32 @@ const DashboardPage = () => {
             footer={
               <Space size={16} style={{ fontSize: 12 }}>
                 <Text type="secondary">
-                  成交金额：
-                  <AmountText
-                    value={overview?.today_trade_amount ?? 0}
-                    suffix=" USDT"
-                    fontWeight={500}
-                    precision={2}
-                  />
+                  买入：<b style={{ color: '#1f1f1f' }}>{overview?.buy_count ?? 0}</b>
                 </Text>
                 <Text type="secondary">
-                  活跃币种：<b style={{ color: '#1f1f1f' }}>{overview?.active_coin_count}</b>
+                  卖出：<b style={{ color: '#1f1f1f' }}>{overview?.sell_count ?? 0}</b>
+                </Text>
+              </Space>
+            }
+          />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <StatisticCard
+            title="历史胜率"
+            value={winRatePct}
+            loading={summaryQ.isLoading}
+            suffix=" %"
+            precision={2}
+            icon={<DashboardOutlined />}
+            iconBgColor="#722ed1"
+            footer={
+              <Space size={16} style={{ fontSize: 12 }}>
+                <Text type="secondary">
+                  活跃币种：
+                  <b style={{ color: '#1f1f1f' }}>{coinRankingQ.data?.length ?? 0}</b>
+                </Text>
+                <Text type="secondary">
+                  已绑定账号：<b style={{ color: '#1f1f1f' }}>{accounts.length}</b>
                 </Text>
               </Space>
             }
@@ -229,13 +273,13 @@ const DashboardPage = () => {
         </Col>
       </Row>
 
-      {/* ========== 中部：今日简报（左） + 资产趋势（右） ========== */}
+      {/* ========== 中部：交易概览（左） + 资产净值趋势（右） ========== */}
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
         <Col xs={24} lg={10}>
           <Card
             title={
               <Space>
-                <span style={{ fontSize: 16, fontWeight: 500 }}>📊 今日简报</span>
+                <span style={{ fontSize: 16, fontWeight: 500 }}>📊 交易概览</span>
                 <Tag color="blue">{new Date().toLocaleDateString('zh-CN')}</Tag>
               </Space>
             }
@@ -243,9 +287,9 @@ const DashboardPage = () => {
             style={{ height: '100%' }}
           >
             <Descriptions column={1} size="small" bordered>
-              <Descriptions.Item label="今日盈亏">
+              <Descriptions.Item label="累计盈亏">
                 <AmountText
-                  value={overview?.today_profit ?? 0}
+                  value={overview?.profit_loss ?? 0}
                   colored
                   showSign
                   suffix=" USDT"
@@ -253,24 +297,28 @@ const DashboardPage = () => {
                   fontSize={15}
                 />
               </Descriptions.Item>
-              <Descriptions.Item label="今日交易笔数">
-                <b>{overview?.today_trade_count ?? 0}</b> 笔
+              <Descriptions.Item label="总交易笔数">
+                <b>{overview?.total_trades ?? 0}</b> 笔
               </Descriptions.Item>
-              <Descriptions.Item label="今日成交金额">
+              <Descriptions.Item label="总成交额">
                 <AmountText
-                  value={overview?.today_trade_amount ?? 0}
+                  value={overview?.total_volume ?? 0}
                   suffix=" USDT"
                   fontWeight={600}
                 />
               </Descriptions.Item>
-              <Descriptions.Item label="活跃币种数">
-                <b>{overview?.active_coin_count ?? 0}</b> 个
+              <Descriptions.Item label="总手续费">
+                <AmountText
+                  value={overview?.total_fee ?? 0}
+                  suffix=" USDT"
+                  fontWeight={600}
+                />
               </Descriptions.Item>
               <Descriptions.Item label="历史胜率">
-                {overview ? `${(overview.win_rate * 100).toFixed(2)}%` : '-'}
+                {overview ? `${winRatePct.toFixed(2)}%` : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="已绑定账号">
-                <b>{accountsQ.data?.total ?? 0}</b> 个
+                <b>{accounts.length}</b> 个
               </Descriptions.Item>
             </Descriptions>
 
@@ -311,37 +359,48 @@ const DashboardPage = () => {
                 <span style={{ fontSize: 16, fontWeight: 500 }}>📈 资产净值趋势</span>
                 <Segmented
                   size="small"
-                  value={trendRange}
-                  options={RANGE_OPTIONS}
-                  onChange={(v) => setTrendRange(v as TrendRange)}
+                  value={trendDays}
+                  options={DAYS_OPTIONS}
+                  onChange={(v) => setTrendDays(Number(v))}
                 />
               </div>
             }
             styles={{ body: { padding: '12px 4px 0' } }}
             style={{ height: '100%' }}
           >
-            <LineChart {...lineChartProps} />
+            <LineChart {...assetLineProps} />
           </Card>
         </Col>
       </Row>
 
-      {/* ========== 中部二：资产分布（左） + 快捷入口（右） ========== */}
+      {/* ========== 盈亏趋势 ========== */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24}>
+          <Card
+            title={<span style={{ fontSize: 16, fontWeight: 500 }}>💹 盈亏趋势（按日）</span>}
+            styles={{ body: { padding: '12px 4px 0' } }}
+          >
+            <LineChart {...pnlLineProps} />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* ========== 中部二：交易所分布（左） + 快捷入口（右） ========== */}
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={10}>
           <Card
-            title={<span style={{ fontSize: 16, fontWeight: 500 }}>💰 币种资产分布</span>}
+            title={<span style={{ fontSize: 16, fontWeight: 500 }}>💰 交易所分布</span>}
             style={{ height: '100%' }}
             styles={{ body: { paddingTop: 4 } }}
           >
             <PieChart
               height={screens.lg ? 320 : 280}
-              loading={distributionQ.isLoading}
-              data={pieChartData}
-              valueSuffix=" USDT"
+              loading={exchangeDistQ.isLoading}
+              data={pieData}
               donut
               centerText={{
-                top: `${((accountsQ.data?.items || []).length > 0 ? '' : '')}`,
-                bottom: '',
+                top: `${pieData.length}`,
+                bottom: '交易所',
               }}
             />
           </Card>

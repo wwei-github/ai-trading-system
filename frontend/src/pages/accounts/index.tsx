@@ -25,7 +25,6 @@ import {
   PageContainer,
   SearchForm,
   CrudModal,
-  AmountText,
   StatusTag,
   ConfirmButton,
   EmptyState,
@@ -35,7 +34,7 @@ import type {
   Account,
   AccountCreateData,
   AccountListParams,
-  ExchangeType,
+  AccountUpdateData,
 } from '@/types';
 import { EXCHANGE_OPTIONS, ACCOUNT_STATUS_MAP } from '@/types/accounts';
 
@@ -48,14 +47,29 @@ const AccountsPage = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [currentRecord, setCurrentRecord] = useState<Account | null>(null);
-  const [syncingIds, setSyncingIds] = useState<Set<number>>(new Set());
-  const [testingIds, setTestingIds] = useState<Set<number>>(new Set());
+  const [syncingIds, setSyncingIds] = useState<Set<string>>(new Set());
+  const [testingIds, setTestingIds] = useState<Set<string>>(new Set());
 
   // ========== 查询账号列表 ==========
+  // 后端返回全量数组，过滤与分页在前端完成
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['accounts', 'list', searchParams],
-    queryFn: () => accountApi.getList(searchParams),
+    queryKey: ['accounts', 'list'],
+    queryFn: () => accountApi.getList(),
   });
+
+  // ========== 客户端过滤 ==========
+  const filteredAccounts = useMemo(() => {
+    const list = data || [];
+    return list.filter((acc) => {
+      if (searchParams.exchange && acc.exchange !== searchParams.exchange) return false;
+      if (searchParams.status && acc.status !== searchParams.status) return false;
+      if (searchParams.keyword) {
+        const kw = searchParams.keyword.toLowerCase();
+        if (!acc.label.toLowerCase().includes(kw)) return false;
+      }
+      return true;
+    });
+  }, [data, searchParams.exchange, searchParams.status, searchParams.keyword]);
 
   // ========== 新增/编辑 ==========
   const createMutation = useMutation({
@@ -68,7 +82,8 @@ const AccountsPage = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => accountApi.update(id, data),
+    mutationFn: ({ id, data }: { id: string; data: AccountUpdateData }) =>
+      accountApi.update(id, data),
     onSuccess: () => {
       message.success('修改成功');
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
@@ -78,7 +93,7 @@ const AccountsPage = () => {
 
   // ========== 删除 ==========
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => accountApi.delete(id),
+    mutationFn: (id: string) => accountApi.delete(id),
     onSuccess: () => {
       message.success('删除成功');
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
@@ -86,7 +101,7 @@ const AccountsPage = () => {
   });
 
   // ========== 连接测试 ==========
-  const handleTestConnection = async (id: number) => {
+  const handleTestConnection = async (id: string) => {
     setTestingIds((prev) => new Set(prev).add(id));
     try {
       const res = await accountApi.testConnection(id);
@@ -120,11 +135,11 @@ const AccountsPage = () => {
     }
   };
 
-  // ========== 同步余额 ==========
-  const handleSyncBalance = async (id: number) => {
+  // ========== 同步账号 ==========
+  const handleSyncAccount = async (id: string) => {
     setSyncingIds((prev) => new Set(prev).add(id));
     try {
-      await accountApi.syncBalance(id);
+      await accountApi.syncAccount(id);
       message.success('同步成功');
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
     } finally {
@@ -179,7 +194,7 @@ const AccountsPage = () => {
       {
         name: 'keyword',
         label: '关键字',
-        placeholder: '搜索别名/API Key/备注',
+        placeholder: '搜索标签',
         element: (
           <Input
             allowClear
@@ -200,7 +215,7 @@ const AccountsPage = () => {
         dataIndex: 'exchange',
         key: 'exchange',
         width: 140,
-        render: (val: ExchangeType) => {
+        render: (val: string) => {
           const opt = EXCHANGE_OPTIONS.find((o) => o.value === val);
           return (
             <Space>
@@ -218,9 +233,9 @@ const AccountsPage = () => {
         },
       },
       {
-        title: '别名',
-        dataIndex: 'alias',
-        key: 'alias',
+        title: '标签',
+        dataIndex: 'label',
+        key: 'label',
         width: 180,
         render: (v: string) => <strong>{v}</strong>,
       },
@@ -232,37 +247,35 @@ const AccountsPage = () => {
         render: (v) => <StatusTag status={v} mapping={ACCOUNT_STATUS_MAP} />,
       },
       {
-        title: '总资产',
-        dataIndex: 'total_asset',
-        key: 'total_asset',
-        width: 150,
-        align: 'right' as const,
-        render: (v: number) => (
-          <AmountText value={v} colored={false} suffix=" USDT" fontWeight={600} />
-        ),
+        title: '网络',
+        dataIndex: 'is_testnet',
+        key: 'is_testnet',
+        width: 100,
+        render: (v: boolean) =>
+          v ? <Tag color="orange">测试网</Tag> : <Tag color="green">正式</Tag>,
       },
       {
-        title: '可用余额',
-        dataIndex: 'available_balance',
-        key: 'available_balance',
-        width: 150,
-        align: 'right' as const,
-        render: (v: number) => <AmountText value={v} suffix=" USDT" />,
-      },
-      {
-        title: '冻结',
-        dataIndex: 'frozen_balance',
-        key: 'frozen_balance',
-        width: 130,
-        align: 'right' as const,
-        render: (v: number) => <AmountText value={v} suffix=" USDT" precision={2} />,
+        title: '权限',
+        dataIndex: 'permissions',
+        key: 'permissions',
+        width: 180,
+        render: (v?: string[]) =>
+          v && v.length > 0 ? (
+            <Space size={[0, 4]} wrap>
+              {v.map((p) => (
+                <Tag key={p} color="blue">{p}</Tag>
+              ))}
+            </Space>
+          ) : (
+            '-'
+          ),
       },
       {
         title: '最后同步',
         dataIndex: 'last_sync_at',
         key: 'last_sync_at',
         width: 170,
-        render: (v: string) => v && dayjs(v).format('YYYY-MM-DD HH:mm:ss'),
+        render: (v?: string) => v && dayjs(v).format('YYYY-MM-DD HH:mm:ss'),
       },
       {
         title: '操作',
@@ -285,13 +298,13 @@ const AccountsPage = () => {
                   测试
                 </Button>
               </Tooltip>
-              <Tooltip title="同步余额">
+              <Tooltip title="同步账号">
                 <Button
                   type="link"
                   size="small"
                   icon={<SyncOutlined />}
                   loading={isSyncing}
-                  onClick={() => handleSyncBalance(record.id)}
+                  onClick={() => handleSyncAccount(record.id)}
                 >
                   同步
                 </Button>
@@ -313,7 +326,7 @@ const AccountsPage = () => {
                 type="link"
                 size="small"
                 title="确认删除该交易所账号？"
-                description="删除后将无法恢复相关交易记录关联（仅前端 mock 移除）"
+                description="删除后将无法恢复相关交易记录关联"
                 onConfirm={() => deleteMutation.mutateAsync(record.id)}
               />
             </Space>
@@ -377,12 +390,12 @@ const AccountsPage = () => {
         rowKey="id"
         loading={isLoading}
         columns={columns}
-        dataSource={data?.items || []}
+        dataSource={filteredAccounts}
         scroll={{ x: 1200 }}
         pagination={{
           current: searchParams.page,
           pageSize: searchParams.page_size,
-          total: data?.total || 0,
+          total: filteredAccounts.length,
           showSizeChanger: true,
           showQuickJumper: true,
           pageSizeOptions: ['10', '20', '50', '100'],
@@ -405,11 +418,10 @@ const AccountsPage = () => {
           currentRecord
             ? {
                 exchange: currentRecord.exchange,
-                alias: currentRecord.alias,
+                label: currentRecord.label,
                 api_key: '',
-                secret: '',
+                api_secret: '',
                 passphrase: '',
-                remark: currentRecord.remark,
               }
             : undefined
         }
@@ -442,9 +454,9 @@ const AccountsPage = () => {
         </Form.Item>
 
         <Form.Item
-          label="别名"
-          name="alias"
-          rules={[{ required: true, message: '请输入账号别名' }]}
+          label="标签"
+          name="label"
+          rules={[{ required: true, message: '请输入账号标签' }]}
         >
           <Input placeholder="如：币安-主账号-1" maxLength={50} />
         </Form.Item>
@@ -464,25 +476,21 @@ const AccountsPage = () => {
         </Form.Item>
 
         <Form.Item
-          label="Secret"
-          name="secret"
+          label="API Secret"
+          name="api_secret"
           rules={[
             {
               required: modalMode === 'create',
-              message: '请输入 Secret',
+              message: '请输入 API Secret',
             },
           ]}
           extra={modalMode === 'edit' ? '留空则不修改' : ''}
         >
-          <Input.Password placeholder="请输入 Secret" />
+          <Input.Password placeholder="请输入 API Secret" />
         </Form.Item>
 
         <Form.Item label="Passphrase" name="passphrase">
           <Input.Password placeholder="部分交易所需要（如 OKX）" />
-        </Form.Item>
-
-        <Form.Item label="备注" name="remark">
-          <Input.TextArea rows={3} placeholder="可选，备注用途说明" maxLength={200} showCount />
         </Form.Item>
       </CrudModal>
     </PageContainer>

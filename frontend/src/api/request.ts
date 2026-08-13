@@ -66,4 +66,18 @@ request.interceptors.response.use(
   },
 );
 
-export default request;
+/**
+ * 类型安全的请求封装。
+ *
+ * 响应拦截器已将 ApiResponse 直接返回（而非 AxiosResponse），
+ * 因此这里将 axios 实例重新声明为返回 Promise<ApiResponse<T>> 的类型，
+ * 使调用方可以通过 `const res = await request.get<T>(url); res.data` 直接获取业务数据。
+ */
+type TypedRequest = {
+  get<T = any>(url: string, config?: any): Promise<ApiResponse<T>>;
+  post<T = any>(url: string, data?: any, config?: any): Promise<ApiResponse<T>>;
+  patch<T = any>(url: string, data?: any, config?: any): Promise<ApiResponse<T>>;
+  delete<T = any>(url: string, config?: any): Promise<ApiResponse<T>>;
+};
+
+export default request as unknown as TypedRequest;

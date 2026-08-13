@@ -5,7 +5,6 @@ import {
   DatePicker,
   Form,
   Input,
-  InputNumber,
   Modal,
   Select,
   Space,
@@ -16,10 +15,8 @@ import {
   message,
   Result,
   Alert,
-  Divider,
 } from 'antd';
 import {
-  PlusOutlined,
   ImportOutlined,
   ExportOutlined,
   InboxOutlined,
@@ -33,7 +30,6 @@ import {
   SearchForm,
   CrudModal,
   AmountText,
-  ConfirmButton,
   EmptyState,
 } from '@/components/Common';
 import { tradeApi, accountApi } from '@/api';
@@ -41,14 +37,24 @@ import type {
   Trade,
   TradeFormData,
   TradeListParams,
-  TradeTag,
   TradeDirection,
   BatchImportResult,
+  Account,
 } from '@/types';
 import { TRADE_DIRECTION_MAP } from '@/types/trades';
+import { EXCHANGE_OPTIONS } from '@/types/accounts';
 
 const { RangePicker } = DatePicker;
 const { Dragger } = Upload;
+
+// 交易状态展示映射（未知状态回退为原值）
+const TRADE_STATUS_MAP: Record<string, { text: string; color: string }> = {
+  filled: { text: '已成交', color: 'green' },
+  partial: { text: '部分成交', color: 'blue' },
+  pending: { text: '待成交', color: 'gold' },
+  cancelled: { text: '已取消', color: 'default' },
+  rejected: { text: '已拒绝', color: 'red' },
+};
 
 type SearchValues = Partial<TradeListParams> & { time_range?: [dayjs.Dayjs, dayjs.Dayjs] };
 
@@ -58,85 +64,58 @@ const TradesPage = () => {
     page: 1,
     page_size: 15,
   });
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [tagsModalOpen, setTagsModalOpen] = useState(false);
   const [currentRecord, setCurrentRecord] = useState<Trade | null>(null);
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importAccountId, setImportAccountId] = useState<string | undefined>();
   const [importResult, setImportResult] = useState<BatchImportResult | null>(null);
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [tagFilter, setTagFilter] = useState<number | null>(null);
 
   // ========== 查询列表 ==========
   const actualQueryParams: TradeListParams = useMemo(() => {
     const { time_range, ...rest } = searchParams;
     return {
       ...rest,
-      start_time: time_range?.[0]?.format('YYYY-MM-DD'),
-      end_time: time_range?.[1]?.format('YYYY-MM-DD'),
-      tag_id: tagFilter || undefined,
+      start_date: time_range?.[0]?.format('YYYY-MM-DD'),
+      end_date: time_range?.[1]?.format('YYYY-MM-DD'),
     };
-  }, [searchParams, tagFilter]);
+  }, [searchParams]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['trades', 'list', actualQueryParams],
     queryFn: () => tradeApi.getList(actualQueryParams),
   });
 
-  // 账号下拉（用于筛选和表单）
+  // 账号列表（用于导入目标选择与表格展示，getList 返回 Account[]）
   const { data: accountsData } = useQuery({
     queryKey: ['accounts', 'select'],
-    queryFn: () => accountApi.getList({ page: 1, page_size: 100 }),
+    queryFn: () => accountApi.getList(),
   });
+
   const accountOptions = useMemo(
     () =>
-      (accountsData?.items || []).map((a) => ({
+      (accountsData || []).map((a) => ({
         value: a.id,
-        label: a.alias,
+        label: a.label,
       })),
     [accountsData],
   );
 
-  // ========== 标签列表 ==========
-  const { data: tagsData } = useQuery({
-    queryKey: ['trades', 'tags'],
-    queryFn: () => tradeApi.getTags(),
-  });
+  const accountMap = useMemo(() => {
+    const m = new Map<string, Account>();
+    (accountsData || []).forEach((a) => m.set(a.id, a));
+    return m;
+  }, [accountsData]);
 
-  const createTagMutation = useMutation({
-    mutationFn: (name: string) => tradeApi.createTag({ name }),
+  // ========== 更新标签/备注 ==========
+  const updateTagsMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { tags?: string[]; note?: string } }) =>
+      tradeApi.updateTags(id, data),
     onSuccess: () => {
-      message.success('标签已创建');
-      queryClient.invalidateQueries({ queryKey: ['trades', 'tags'] });
-    },
-  });
-
-  // ========== 新增/编辑 ==========
-  const createMutation = useMutation({
-    mutationFn: (d: TradeFormData) => tradeApi.create(d),
-    onSuccess: () => {
-      message.success('录入成功');
+      message.success('更新成功');
       queryClient.invalidateQueries({ queryKey: ['trades'] });
-      setModalOpen(false);
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: Partial<TradeFormData> }) =>
-      tradeApi.update(id, data),
-    onSuccess: () => {
-      message.success('修改成功');
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
-      setModalOpen(false);
-    },
-  });
-
-  // ========== 删除 ==========
-  const deleteMutation = useMutation({
-    mutationFn: (id: number) => tradeApi.delete(id),
-    onSuccess: () => {
-      message.success('删除成功');
-      queryClient.invalidateQueries({ queryKey: ['trades'] });
+      setTagsModalOpen(false);
     },
   });
 
@@ -144,7 +123,7 @@ const TradesPage = () => {
   const handleExport = async () => {
     setExporting(true);
     try {
-      const blob = await tradeApi.export(actualQueryParams);
+      const blob = await tradeApi.exportTrades(actualQueryParams, 'csv');
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -161,17 +140,145 @@ const TradesPage = () => {
     }
   };
 
+  // ========== CSV 解析（客户端解析为 TradeFormData[]，再调用批量导入接口） ==========
+  const parseCsvLine = (line: string): string[] => {
+    const result: string[] = [];
+    let cur = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (line[i + 1] === '"') {
+            cur += '"';
+            i++;
+          } else {
+            inQuotes = false;
+          }
+        } else {
+          cur += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        result.push(cur);
+        cur = '';
+      } else {
+        cur += ch;
+      }
+    }
+    result.push(cur);
+    return result;
+  };
+
+  const parseTradesCsv = (
+    text: string,
+    accountId: string,
+    exchange: string,
+  ): { trades: TradeFormData[]; errors: string[] } => {
+    const errors: string[] = [];
+    const lines = text
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .filter((l) => l.trim() !== '');
+    if (lines.length === 0) {
+      return { trades: [], errors: ['文件为空'] };
+    }
+    const header = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase());
+    const required = ['symbol', 'side', 'price', 'quantity', 'executed_at'];
+    const missing = required.filter((f) => !header.includes(f));
+    if (missing.length > 0) {
+      return { trades: [], errors: [`表头缺少必需列：${missing.join(', ')}`] };
+    }
+    const trades: TradeFormData[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const cells = parseCsvLine(lines[i]);
+      const row: Partial<Record<string, string>> = {};
+      header.forEach((h, j) => {
+        row[h] = (cells[j] ?? '').trim();
+      });
+      const price = Number(row.price);
+      const quantity = Number(row.quantity);
+      if (
+        !row.symbol ||
+        !row.side ||
+        !row.executed_at ||
+        Number.isNaN(price) ||
+        Number.isNaN(quantity)
+      ) {
+        errors.push(`第 ${i + 1} 行：必需字段缺失或无效`);
+        continue;
+      }
+      const item: TradeFormData = {
+        account_id: accountId,
+        exchange,
+        symbol: row.symbol,
+        side: row.side as TradeDirection,
+        price,
+        quantity,
+        executed_at: row.executed_at,
+      };
+      if (row.market_type) item.market_type = row.market_type;
+      if (row.order_type) item.order_type = row.order_type;
+      if (row.fee !== undefined && row.fee !== '') item.fee = Number(row.fee);
+      if (row.fee_currency) item.fee_currency = row.fee_currency;
+      if (row.leverage !== undefined && row.leverage !== '') item.leverage = Number(row.leverage);
+      if (row.status) item.status = row.status;
+      if (row.strategy_id) item.strategy_id = row.strategy_id;
+      if (row.tags) {
+        item.tags = row.tags
+          .split(/[;|]/)
+          .map((t) => t.trim())
+          .filter(Boolean);
+      }
+      if (row.note) item.note = row.note;
+      if (row.exchange_order_id) item.exchange_order_id = row.exchange_order_id;
+      trades.push(item);
+    }
+    return { trades, errors };
+  };
+
   // ========== 导入 ==========
   const handleImportFile = async (file: File) => {
+    if (!importAccountId) {
+      message.warning('请先选择导入的目标账号');
+      return false;
+    }
+    const account = accountMap.get(importAccountId);
+    if (!account) {
+      message.warning('所选账号不存在');
+      return false;
+    }
     setImporting(true);
     setImportResult(null);
     try {
-      const result = await tradeApi.batchImport(file);
-      setImportResult(result);
-      if (result.failed === 0) {
-        message.success(`导入成功：${result.success} 条`);
+      const text = await file.text();
+      const { trades, errors: parseErrors } = parseTradesCsv(
+        text,
+        importAccountId,
+        account.exchange,
+      );
+      if (trades.length === 0) {
+        setImportResult({
+          total: parseErrors.length,
+          imported: 0,
+          skipped: parseErrors.length,
+          errors: parseErrors,
+        });
+        return false;
+      }
+      const result = await tradeApi.batchImport(importAccountId, trades);
+      const merged: BatchImportResult = {
+        total: result.total,
+        imported: result.imported,
+        skipped: result.skipped + parseErrors.length,
+        errors: [...parseErrors, ...result.errors],
+      };
+      setImportResult(merged);
+      if (merged.skipped === 0) {
+        message.success(`导入成功：${merged.imported} 条`);
       } else {
-        message.warning(`导入完成：成功 ${result.success} 条，失败 ${result.failed} 条`);
+        message.warning(`导入完成：成功 ${merged.imported} 条，跳过 ${merged.skipped} 条`);
       }
       queryClient.invalidateQueries({ queryKey: ['trades'] });
     } catch (err) {
@@ -186,13 +293,13 @@ const TradesPage = () => {
   const searchFields = useMemo(
     () => [
       {
-        name: 'account_id',
-        label: '账号',
+        name: 'exchange',
+        label: '交易所',
         element: (
           <Select
             allowClear
-            placeholder="请选择账号"
-            options={accountOptions}
+            placeholder="全部"
+            options={EXCHANGE_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
             showSearch
             optionFilterProp="label"
           />
@@ -204,7 +311,7 @@ const TradesPage = () => {
         element: <Input allowClear placeholder="如：BTC/USDT" prefix={<SearchOutlined />} />,
       },
       {
-        name: 'direction',
+        name: 'side',
         label: '方向',
         element: (
           <Select allowClear placeholder="全部">
@@ -214,6 +321,20 @@ const TradesPage = () => {
               </Select.Option>
             ))}
           </Select>
+        ),
+      },
+      {
+        name: 'status',
+        label: '状态',
+        element: (
+          <Select
+            allowClear
+            placeholder="全部"
+            options={Object.entries(TRADE_STATUS_MAP).map(([k, v]) => ({
+              value: k,
+              label: v.text,
+            }))}
+          />
         ),
       },
       {
@@ -227,32 +348,39 @@ const TradesPage = () => {
           />
         ),
       },
-      {
-        name: 'keyword',
-        label: '关键字',
-        element: <Input allowClear placeholder="币种/备注/账号" prefix={<SearchOutlined />} />,
-      },
     ],
-    [accountOptions],
+    [],
   );
 
   // ========== 表格列 ==========
   const columns = useMemo(
     () => [
       {
-        title: '交易时间',
-        dataIndex: 'trade_time',
-        key: 'trade_time',
+        title: '成交时间',
+        dataIndex: 'executed_at',
+        key: 'executed_at',
         width: 170,
-        sorter: (a, b) => a.trade_time.localeCompare(b.trade_time),
+        sorter: (a: Trade, b: Trade) => a.executed_at.localeCompare(b.executed_at),
         render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm:ss'),
       },
       {
         title: '账号',
-        dataIndex: 'account_alias',
-        key: 'account_alias',
-        width: 160,
-        render: (v?: string) => <Tag color="geekblue">{v || '-'}</Tag>,
+        dataIndex: 'account_id',
+        key: 'account_id',
+        width: 140,
+        render: (v: string) => (
+          <Tag color="geekblue">{accountMap.get(v)?.label || v}</Tag>
+        ),
+      },
+      {
+        title: '交易所',
+        dataIndex: 'exchange',
+        key: 'exchange',
+        width: 100,
+        render: (v: string) => {
+          const opt = EXCHANGE_OPTIONS.find((o) => o.value === v);
+          return opt ? opt.label : v;
+        },
       },
       {
         title: '币种',
@@ -263,24 +391,19 @@ const TradesPage = () => {
       },
       {
         title: '方向',
-        dataIndex: 'direction',
-        key: 'direction',
+        dataIndex: 'side',
+        key: 'side',
         width: 80,
         render: (v: TradeDirection) => (
-          <span
-            style={{
-              color: TRADE_DIRECTION_MAP[v].color,
-              fontWeight: 600,
-            }}
-          >
-            {TRADE_DIRECTION_MAP[v].text}
+          <span style={{ color: TRADE_DIRECTION_MAP[v]?.color, fontWeight: 600 }}>
+            {TRADE_DIRECTION_MAP[v]?.text || v}
           </span>
         ),
       },
       {
         title: '数量',
-        dataIndex: 'amount',
-        key: 'amount',
+        dataIndex: 'quantity',
+        key: 'quantity',
         width: 130,
         align: 'right' as const,
         render: (v: number) => <AmountText value={v} precision={4} fontWeight={500} />,
@@ -295,12 +418,11 @@ const TradesPage = () => {
       },
       {
         title: '金额',
-        dataIndex: 'total',
         key: 'total',
         width: 150,
         align: 'right' as const,
-        render: (v: number) => (
-          <AmountText value={v} suffix=" USDT" fontWeight={600} precision={2} />
+        render: (_: unknown, rec: Trade) => (
+          <AmountText value={rec.price * rec.quantity} suffix=" USDT" fontWeight={600} precision={2} />
         ),
       },
       {
@@ -314,34 +436,26 @@ const TradesPage = () => {
         ),
       },
       {
-        title: '盈亏',
-        dataIndex: 'profit',
-        key: 'profit',
-        width: 130,
-        align: 'right' as const,
-        render: (v?: number) =>
-          v !== undefined ? (
-            <AmountText value={v} colored suffix=" USDT" showSign fontWeight={600} />
-          ) : (
-            <span style={{ color: '#bfbfbf' }}>—</span>
-          ),
+        title: '状态',
+        dataIndex: 'status',
+        key: 'status',
+        width: 100,
+        render: (v: string) => {
+          const m = TRADE_STATUS_MAP[v];
+          return <Tag color={m?.color || 'default'}>{m?.text || v || '-'}</Tag>;
+        },
       },
       {
         title: '标签',
         dataIndex: 'tags',
         key: 'tags',
         width: 180,
-        render: (tags?: TradeTag[]) =>
+        render: (tags?: string[]) =>
           tags && tags.length > 0 ? (
             <Space size={[4, 4]} wrap>
-              {tags.map((t) => (
-                <Tag
-                  key={t.id}
-                  color={t.color}
-                  style={{ cursor: 'pointer', margin: 2 }}
-                  onClick={() => setTagFilter((prev) => (prev === t.id ? null : t.id))}
-                >
-                  {t.name}
+              {tags.map((t, i) => (
+                <Tag key={`${t}-${i}`} style={{ margin: 2 }}>
+                  {t}
                 </Tag>
               ))}
             </Space>
@@ -349,8 +463,8 @@ const TradesPage = () => {
       },
       {
         title: '备注',
-        dataIndex: 'remark',
-        key: 'remark',
+        dataIndex: 'note',
+        key: 'note',
         width: 150,
         ellipsis: true,
         render: (v?: string) => (
@@ -362,132 +476,48 @@ const TradesPage = () => {
       {
         title: '操作',
         key: 'actions',
-        width: 130,
+        width: 110,
         fixed: 'right' as const,
-        render: (_: any, record: Trade) => (
-          <Space size="small">
-            <Button
-              type="link"
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => {
-                setCurrentRecord(record);
-                setModalMode('edit');
-                setModalOpen(true);
-              }}
-            >
-              编辑
-            </Button>
-            <ConfirmButton
-              label="删除"
-              type="link"
-              size="small"
-              title="确认删除该条交易记录？"
-              onConfirm={() => deleteMutation.mutateAsync(record.id)}
-            />
-          </Space>
+        render: (_: unknown, record: Trade) => (
+          <Button
+            type="link"
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => {
+              setCurrentRecord(record);
+              setTagsModalOpen(true);
+            }}
+          >
+            标签/备注
+          </Button>
         ),
       },
     ],
-    [deleteMutation],
+    [accountMap],
   );
 
-  // ========== 表单提交 ==========
-  const handleModalSubmit = async (values: any) => {
-    const payload: TradeFormData = {
-      ...values,
-      trade_time: values.trade_time
-        ? dayjs(values.trade_time).format('YYYY-MM-DD HH:mm:ss')
-        : dayjs().format('YYYY-MM-DD HH:mm:ss'),
-    };
-    if (modalMode === 'create') {
-      await createMutation.mutateAsync(payload);
-    } else if (currentRecord) {
-      await updateMutation.mutateAsync({ id: currentRecord.id, data: payload });
-    }
+  // ========== 标签/备注提交 ==========
+  const handleTagsSubmit = async (values: { tags?: string[]; note?: string }) => {
+    if (!currentRecord) return;
+    await updateTagsMutation.mutateAsync({
+      id: currentRecord.id,
+      data: { tags: values.tags, note: values.note },
+    });
   };
 
-  // 弹窗表单初始值
-  const modalInitialValues: any = useMemo(() => {
-    if (!currentRecord) {
-      return {
-        direction: 'buy',
-        fee_currency: 'USDT',
-        trade_time: dayjs(),
-      };
-    }
-    return {
-      account_id: currentRecord.account_id,
-      symbol: currentRecord.symbol,
-      direction: currentRecord.direction,
-      amount: currentRecord.amount,
-      price: currentRecord.price,
-      fee: currentRecord.fee,
-      fee_currency: currentRecord.fee_currency,
-      trade_time: dayjs(currentRecord.trade_time),
-      tag_ids: currentRecord.tags?.map((t) => t.id) || [],
-      remark: currentRecord.remark,
-    };
-  }, [currentRecord]);
-
-  // ========== 自定义标签（Select dropdownRender） ==========
-  const tagDropdownRender = (menu: React.ReactNode) => {
-    const [input, setInput] = useState('');
-    return (
-      <>
-        {menu}
-        <Divider style={{ margin: '8px 0' }} />
-        <Space style={{ padding: '0 8px 8px', width: '100%' }}>
-          <Input
-            size="small"
-            placeholder="新标签名称"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onPressEnter={async () => {
-              if (input.trim()) {
-                await createTagMutation.mutateAsync(input.trim());
-                setInput('');
-              }
-            }}
-            style={{ flex: 1 }}
-          />
-          <Button
-            size="small"
-            type="primary"
-            disabled={!input.trim()}
-            loading={createTagMutation.isPending}
-            onClick={async () => {
-              if (input.trim()) {
-                await createTagMutation.mutateAsync(input.trim());
-                setInput('');
-              }
-            }}
-          >
-            新增
-          </Button>
-        </Space>
-      </>
-    );
-  };
+  const tagsInitialValues = useMemo(
+    () => ({
+      tags: currentRecord?.tags || [],
+      note: currentRecord?.note || '',
+    }),
+    [currentRecord],
+  );
 
   return (
     <PageContainer
       breadcrumbs={[{ title: '交易记录' }]}
       title="交易记录管理"
-      description={
-        tagFilter ? (
-          <Tag
-            color="blue"
-            closable
-            onClose={() => setTagFilter(null)}
-            style={{ marginInlineStart: 0 }}
-          >
-            按标签筛选：{tagsData?.find((t) => t.id === tagFilter)?.name}
-          </Tag>
-        ) : (
-          '交易记录全生命周期管理：录入、查询、批量导入导出与标签化管理'
-        )
-      }
+      description="交易记录查询、批量导入导出与标签/备注管理"
       extra={
         <Space>
           <Button
@@ -499,23 +529,8 @@ const TradesPage = () => {
           >
             批量导入
           </Button>
-          <Button
-            icon={<ExportOutlined />}
-            onClick={handleExport}
-            loading={exporting}
-          >
+          <Button icon={<ExportOutlined />} onClick={handleExport} loading={exporting}>
             批量导出
-          </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setCurrentRecord(null);
-              setModalMode('create');
-              setModalOpen(true);
-            }}
-          >
-            新增交易
           </Button>
         </Space>
       }
@@ -533,13 +548,6 @@ const TradesPage = () => {
               page: 1,
             }));
           }}
-          extraButtons={
-            tagFilter ? (
-              <Button onClick={() => setTagFilter(null)}>
-                清除标签筛选
-              </Button>
-            ) : undefined
-          }
         />
       </div>
 
@@ -558,148 +566,31 @@ const TradesPage = () => {
           showSizeChanger: true,
           showQuickJumper: true,
           pageSizeOptions: ['15', '30', '50', '100'],
-          showTotal: (total, range) =>
-            `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
+          showTotal: (total, range) => `第 ${range[0]}-${range[1]} 条，共 ${total} 条`,
           onChange: (page, pageSize) => {
             setSearchParams((prev) => ({ ...prev, page, page_size: pageSize }));
           },
         }}
         locale={{
-          emptyText: <EmptyState description="暂无交易记录，点击右上角新增交易" />,
+          emptyText: <EmptyState description="暂无交易记录，可使用批量导入添加" />,
         }}
       />
 
-      {/* 新增/编辑弹窗 */}
-      <CrudModal
-        open={modalOpen}
-        mode={modalMode}
-        entityName="交易记录"
-        initialValues={modalInitialValues}
-        onOk={handleModalSubmit}
-        onCancel={() => setModalOpen(false)}
-        modalProps={{ width: 720 }}
+      {/* 标签/备注编辑弹窗 */}
+      <CrudModal<{ tags?: string[]; note?: string }>
+        open={tagsModalOpen}
+        mode="edit"
+        title="编辑标签/备注"
+        initialValues={tagsInitialValues}
+        onOk={handleTagsSubmit}
+        onCancel={() => setTagsModalOpen(false)}
+        modalProps={{ width: 520 }}
       >
-        <Space.Compact style={{ width: '100%', display: 'flex' }}>
-          <Form.Item
-            label="账号"
-            name="account_id"
-            rules={[{ required: true, message: '请选择账号' }]}
-            style={{ flex: 1, marginRight: 12 }}
-          >
-            <Select
-              placeholder="请选择交易所账号"
-              options={accountOptions}
-              showSearch
-              optionFilterProp="label"
-            />
-          </Form.Item>
-          <Form.Item
-            label="币种"
-            name="symbol"
-            rules={[
-              { required: true, message: '请输入币种' },
-              { pattern: /^[A-Z0-9]+\/[A-Z0-9]+$/, message: '格式如：BTC/USDT' },
-            ]}
-            style={{ flex: 1 }}
-          >
-            <Input placeholder="BTC/USDT" style={{ textTransform: 'uppercase' }} />
-          </Form.Item>
-        </Space.Compact>
-
-        <Space.Compact style={{ width: '100%', display: 'flex' }}>
-          <Form.Item
-            label="方向"
-            name="direction"
-            rules={[{ required: true, message: '请选择方向' }]}
-            style={{ flex: 1, marginRight: 12 }}
-          >
-            <Select
-              options={Object.entries(TRADE_DIRECTION_MAP).map(([k, v]) => ({
-                value: k,
-                label: (
-                  <span style={{ color: v.color, fontWeight: 500 }}>
-                    {v.text}
-                  </span>
-                ),
-              }))}
-            />
-          </Form.Item>
-          <Form.Item
-            label="数量"
-            name="amount"
-            rules={[{ required: true, message: '请输入数量' }]}
-            style={{ flex: 1, marginRight: 12 }}
-          >
-            <InputNumber
-              style={{ width: '100%' }}
-              min={0}
-              step={0.0001}
-              precision={6}
-              placeholder="买入/卖出数量"
-            />
-          </Form.Item>
-          <Form.Item
-            label="价格"
-            name="price"
-            rules={[{ required: true, message: '请输入价格' }]}
-            style={{ flex: 1 }}
-          >
-            <InputNumber
-              style={{ width: '100%' }}
-              min={0}
-              step={0.01}
-              precision={6}
-              placeholder="成交单价"
-            />
-          </Form.Item>
-        </Space.Compact>
-
-        <Space.Compact style={{ width: '100%', display: 'flex' }}>
-          <Form.Item label="手续费" name="fee" style={{ flex: 1, marginRight: 12 }}>
-            <InputNumber
-              style={{ width: '100%' }}
-              min={0}
-              step={0.000001}
-              precision={8}
-              placeholder="0.00"
-            />
-          </Form.Item>
-          <Form.Item label="手续费币种" name="fee_currency" style={{ flex: 1, marginRight: 12 }}>
-            <Input placeholder="USDT" style={{ textTransform: 'uppercase' }} />
-          </Form.Item>
-          <Form.Item
-            label="交易时间"
-            name="trade_time"
-            rules={[{ required: true, message: '请选择时间' }]}
-            style={{ flex: 1 }}
-          >
-            <DatePicker showTime style={{ width: '100%' }} format="YYYY-MM-DD HH:mm:ss" />
-          </Form.Item>
-        </Space.Compact>
-
-        <Form.Item label="标签" name="tag_ids">
-          <Select
-            mode="multiple"
-            placeholder="选择或新增标签"
-            allowClear
-            options={(tagsData || []).map((t: TradeTag) => ({
-              value: t.id,
-              label: (
-                <span>
-                  <Tag color={t.color} style={{ marginInlineEnd: 0 }}>
-                    {t.name}
-                  </Tag>
-                </span>
-              ),
-            }))}
-            dropdownRender={tagDropdownRender as any}
-            optionLabelProp="label"
-            maxTagCount="responsive"
-          />
+        <Form.Item label="标签" name="tags" tooltip="输入后回车添加标签">
+          <Select mode="tags" placeholder="添加标签" allowClear maxTagCount="responsive" />
         </Form.Item>
-
-        <Form.Item label="备注" name="remark">
-          <Input.TextArea rows={2} placeholder="可选" maxLength={200} showCount />
+        <Form.Item label="备注" name="note">
+          <Input.TextArea rows={3} placeholder="可选" maxLength={500} showCount />
         </Form.Item>
       </CrudModal>
 
@@ -727,25 +618,34 @@ const TradesPage = () => {
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message="支持 CSV / Excel 文件，文件大小不超过 10MB"
-              description="列顺序：币种、方向（buy/sell）、数量、价格、手续费、交易时间（YYYY-MM-DD HH:mm:ss）、备注"
+              message="选择目标账号后上传 CSV 文件，文件大小不超过 10MB"
+              description="列顺序（含表头）：symbol, side, quantity, price, fee, fee_currency, executed_at, note"
             />
+            <Form.Item label="目标账号" required style={{ marginBottom: 16 }}>
+              <Select
+                placeholder="请选择导入的目标账号"
+                options={accountOptions}
+                value={importAccountId}
+                onChange={setImportAccountId}
+                showSearch
+                optionFilterProp="label"
+              />
+            </Form.Item>
             <Dragger
-              accept=".csv,.xlsx,.xls"
+              accept=".csv"
               multiple={false}
               maxCount={1}
               showUploadList={false}
               beforeUpload={handleImportFile}
+              disabled={!importAccountId || importing}
               style={{ padding: 20 }}
             >
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
-              <p className="ant-upload-text">
-                点击或拖拽文件到此处上传
-              </p>
+              <p className="ant-upload-text">点击或拖拽文件到此处上传</p>
               <p className="ant-upload-hint">
-                {importing ? '正在导入中，请稍候...' : '仅支持 CSV / Excel 格式'}
+                {importing ? '正在导入中，请稍候...' : '仅支持 CSV 格式'}
               </p>
             </Dragger>
             <div style={{ marginTop: 16, textAlign: 'right' }}>
@@ -754,7 +654,7 @@ const TradesPage = () => {
                 type="link"
                 onClick={() => {
                   const content =
-                    'symbol,direction,amount,price,fee,trade_time,remark\nBTC/USDT,buy,0.1,65000,6.5,2026-08-01 10:00:00,\n';
+                    'symbol,side,quantity,price,fee,fee_currency,executed_at,note\nBTC/USDT,buy,0.1,65000,6.5,USDT,2026-08-01 10:00:00,测试导入\n';
                   const blob = new Blob([content], { type: 'text/csv;charset=utf-8' });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a');
@@ -780,9 +680,9 @@ const TradesPage = () => {
           </>
         ) : (
           <Result
-            status={importResult.failed === 0 ? 'success' : 'warning'}
-            title={importResult.failed === 0 ? '导入成功' : '导入部分失败'}
-            subTitle={`共 ${importResult.total} 条，成功 ${importResult.success} 条，失败 ${importResult.failed} 条`}
+            status={importResult.skipped === 0 ? 'success' : 'warning'}
+            title={importResult.skipped === 0 ? '导入成功' : '导入部分失败'}
+            subTitle={`共 ${importResult.total} 条，成功 ${importResult.imported} 条，跳过 ${importResult.skipped} 条`}
             extra={
               importResult.errors.length > 0 ? (
                 <Alert
@@ -793,9 +693,7 @@ const TradesPage = () => {
                   description={
                     <ul style={{ margin: 0, paddingLeft: 20 }}>
                       {importResult.errors.map((e, i) => (
-                        <li key={i}>
-                          第 {e.row} 行：{e.message}
-                        </li>
+                        <li key={i}>{e}</li>
                       ))}
                     </ul>
                   }
