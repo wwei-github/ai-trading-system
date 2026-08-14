@@ -217,13 +217,15 @@ async def _run_backtest_async(backtest_id: str):
             # 提取 AI 分析摘要（用于 SSE 推送）
             ai_analysis = None
             if ai_result:
+                _ma = ai_result.get("market_analysis") or {}
+                _tp = ai_result.get("trade_plan") or {}
                 ai_analysis = {
-                    "trend": ai_result.get("market_analysis", {}).get("trend"),
-                    "strength": ai_result.get("market_analysis", {}).get("strength"),
-                    "summary": ai_result.get("market_analysis", {}).get("summary"),
+                    "trend": _ma.get("trend"),
+                    "strength": _ma.get("strength"),
+                    "summary": _ma.get("summary"),
                     "decision": ai_result.get("decision"),
-                    "confidence": ai_result.get("trade_plan", {}).get("confidence"),
-                    "reason": ai_result.get("trade_plan", {}).get("reason"),
+                    "confidence": _tp.get("confidence"),
+                    "reason": _tp.get("reason"),
                 }
 
             # 执行决策
