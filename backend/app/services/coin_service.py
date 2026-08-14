@@ -278,9 +278,9 @@ class CoinService:
         if len(db_items) < limit:
             need_fetch = True
         elif db_items:
-            latest_open = db_items[0].open_time
-            if latest_open.tzinfo is None:
-                latest_open = latest_open.replace(tzinfo=datetime.timezone.utc)
+            latest_open = datetime.datetime.fromtimestamp(
+                db_items[0].timestamp / 1000, tz=datetime.timezone.utc
+            )
             age = (now - latest_open).total_seconds()
             if age > timeframe_seconds * 2:  # 超过 2 个周期未更新
                 need_fetch = True

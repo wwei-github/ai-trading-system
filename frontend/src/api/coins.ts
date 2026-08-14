@@ -10,6 +10,8 @@ import type {
   CompareResultItem,
 } from '@/types';
 
+const _sym = (s: string) => s.replace(/\//g, '-');
+
 export const coinApi = {
   async getList(params: CoinListParams = {}): Promise<Coin[]> {
     const query = new URLSearchParams();
@@ -23,12 +25,12 @@ export const coinApi = {
   },
 
   async getDetail(symbol: string): Promise<CoinTicker> {
-    const res = await request.get<CoinTicker>(`/coins/${encodeURIComponent(symbol)}`);
+    const res = await request.get<CoinTicker>(`/coins/${_sym(symbol)}`);
     return res.data;
   },
 
   async getTicker(symbol: string): Promise<CoinTicker> {
-    const res = await request.get<CoinTicker>(`/coins/${encodeURIComponent(symbol)}/ticker`);
+    const res = await request.get<CoinTicker>(`/coins/${_sym(symbol)}/ticker`);
     return res.data;
   },
 
@@ -38,7 +40,7 @@ export const coinApi = {
     if (params.limit) query.append('limit', String(params.limit));
     const qs = query.toString();
     const res = await request.get<KlinePoint[]>(
-      `/coins/${encodeURIComponent(params.symbol)}/kline${qs ? `?${qs}` : ''}`,
+      `/coins/${_sym(params.symbol)}/kline${qs ? `?${qs}` : ''}`,
     );
     return res.data;
   },
@@ -48,7 +50,7 @@ export const coinApi = {
     if (period) query.append('timeframe', period);
     const qs = query.toString();
     const res = await request.get<IndicatorData>(
-      `/coins/${encodeURIComponent(symbol)}/indicators${qs ? `?${qs}` : ''}`,
+      `/coins/${_sym(symbol)}/indicators${qs ? `?${qs}` : ''}`,
     );
     return res.data;
   },
