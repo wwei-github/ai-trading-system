@@ -3,7 +3,7 @@
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -41,10 +41,20 @@ class StrategyResponse(StrategyBase):
     user_id: uuid.UUID
     source_book_id: Optional[uuid.UUID] = None
     status: str
+    is_template: bool = False
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class StrategyCloneRequest(BaseModel):
+    """策略克隆请求。"""
+
+    new_name: Optional[str] = Field(None, description="新策略名称，留空则使用「原名（副本）」")
+
+
+# ---------- 回测 ----------
 
 
 class BacktestBase(BaseModel):
@@ -84,8 +94,102 @@ class BacktestResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BacktestCompareRequest(BaseModel):
+    """回测对比请求。"""
+
+    backtest_id_a: uuid.UUID = Field(..., description="回测 A 的 ID")
+    backtest_id_b: uuid.UUID = Field(..., description="回测 B 的 ID")
+
+
+class BacktestTradeResponse(BaseModel):
+    """回测交易明细响应。"""
+
+    id: uuid.UUID
+    backtest_id: uuid.UUID
+    strategy_id: uuid.UUID
+    symbol: str
+    side: str
+    entry_time: datetime
+    entry_price: float
+    quantity: float
+    exit_time: Optional[datetime] = None
+    exit_price: Optional[float] = None
+    pnl: float
+    pnl_pct: float
+    holding_bars: int
+    exit_reason: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ---------- 模拟交易 ----------
+
+
+class PaperTradingStartRequest(BaseModel):
+    """启动模拟交易请求。"""
+
+    strategy_id: uuid.UUID
+    symbol: str = Field(..., description="交易对，如 BTC/USDT")
+    timeframe: str = Field("1h", description="K 线周期")
+    initial_capital: float = Field(10000.0, gt=0, description="初始虚拟资金（USDT）")
+
+
+class PaperTradingControlRequest(BaseModel):
+    """模拟交易控制请求。"""
+
+    action: str = Field(..., description="操作：pause / resume / stop")
+
+
+class PaperAccountResponse(BaseModel):
+    """模拟交易账号响应。"""
+
+    id: uuid.UUID
+    user_id: uuid.UUID
+    strategy_id: uuid.UUID
+    symbol: str
+    timeframe: str
+    initial_capital: Decimal
+    current_equity: Decimal
+    available_cash: Decimal
+    position: float
+    avg_entry_price: Optional[float] = None
+    status: str
+    strategy_params: Optional[Dict[str, Any]] = None
+    total_trades: int
+    total_pnl: Decimal
+    started_at: datetime
+    stopped_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaperTradeResponse(BaseModel):
+    """模拟交易记录响应。"""
+
+    id: uuid.UUID
+    paper_account_id: uuid.UUID
+    strategy_id: uuid.UUID
+    user_id: uuid.UUID
+    symbol: str
+    side: str
+    order_type: str
+    price: float
+    quantity: float
+    fee: float
+    executed_at: datetime
+    signal_source: Optional[str] = None
+    realized_pnl: Optional[float] = None
+    extra: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class PaperTradeRequest(BaseModel):
-    """模拟交易请求。"""
+    """[兼容] 手动模拟交易请求（单笔）。"""
 
     symbol: str
     side: str  # buy / sell
@@ -93,8 +197,64 @@ class PaperTradeRequest(BaseModel):
     price: Optional[float] = None
 
 
+# ---------- 实盘交易 ----------
+
+
+class LiveTradingStartRequest(BaseModel):
+    """启动实盘策略实例请求。"""
+
+    strategy_id: uuid.UUID
+    account_id: uuid.UUID = Field(..., description="交易所账号 ID")
+    symbol: str = Field(..., description="交易对，如 BTC/USDT")
+    timeframe: str = Field("1h", description="K 线周期")
+    mode: str = Field("semi_auto", description="运行模式：semi_auto / full_auto（V2）")
+    risk_params: Optional[Dict[str, Any]] = Field(
+        None, description="风控参数覆盖（不传则使用默认 8 阈值）"
+    )
+
+
+class LiveTradingStopRequest(BaseModel):
+    """停止实盘策略请求。"""
+
+    close_positions: bool = Field(
+        False, description="True=停止并平所有仓；False=仅停止下单"
+    )
+    reason: Optional[str] = Field(None, description="停止原因")
+
+
+class LiveOrderResponse(BaseModel):
+    """实盘信号订单响应。"""
+
+    id: uuid.UUID
+    instance_id: uuid.UUID
+    strategy_id: uuid.UUID
+    user_id: uuid.UUID
+    account_id: uuid.UUID
+    symbol: str
+    side: str
+    order_type: str
+    suggested_price: Optional[float] = None
+    suggested_amount: float
+    signal_strength: int
+    reason: Optional[str] = None
+    status: str
+    signal_at: datetime
+    confirmed_at: Optional[datetime] = None
+    executed_at: Optional[datetime] = None
+    exchange_order_id: Optional[str] = None
+    executed_price: Optional[float] = None
+    executed_amount: Optional[float] = None
+    expires_at: Optional[datetime] = None
+    risk_check_passed: Optional[bool] = None
+    risk_reject_reason: Optional[str] = None
+    extra: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class LiveTradeRequest(BaseModel):
-    """实盘交易请求（需二次确认）。"""
+    """[兼容] 直接实盘交易请求（需二次确认）。"""
 
     symbol: str
     side: str  # buy / sell

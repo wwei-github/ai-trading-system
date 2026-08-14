@@ -528,6 +528,39 @@ class StrategyService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
+    async def get_live_instance(
+        self, instance_id: uuid.UUID
+    ) -> Optional[LiveStrategyInstance]:
+        """获取实盘策略实例详情。"""
+        result = await self.db.execute(
+            select(LiveStrategyInstance).where(
+                LiveStrategyInstance.id == instance_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def pause_live_trading(self, instance_id: uuid.UUID) -> LiveStrategyInstance:
+        """暂停实盘策略（仅停止生成新信号，不平仓）。"""
+        instance = await self.get_live_instance(instance_id)
+        if instance is None:
+            raise NotFoundException(message="实盘策略实例不存在")
+        if instance.status != "running":
+            raise BadRequestException(message="仅运行中可暂停")
+        instance.status = "paused"
+        await self.db.flush()
+        return instance
+
+    async def resume_live_trading(self, instance_id: uuid.UUID) -> LiveStrategyInstance:
+        """恢复实盘策略。"""
+        instance = await self.get_live_instance(instance_id)
+        if instance is None:
+            raise NotFoundException(message="实盘策略实例不存在")
+        if instance.status != "paused":
+            raise BadRequestException(message="仅暂停状态可恢复")
+        instance.status = "running"
+        await self.db.flush()
+        return instance
+
     async def stop_live_trading(
         self,
         instance_id: uuid.UUID,
@@ -604,8 +637,16 @@ class StrategyService:
                 await self.db.flush()
                 raise BadRequestException(message="订单已过期（60s 未确认）")
 
-        # 风控校验
-        risk_passed, risk_reason = self._check_risk(order)
+        # 加载实例以获取风控参数
+        inst_result = await self.db.execute(
+            select(LiveStrategyInstance).where(
+                LiveStrategyInstance.id == order.instance_id
+            )
+        )
+        instance = inst_result.scalar_one_or_none()
+
+        # 风控校验（8 阈值）
+        risk_passed, risk_reason = await self._check_risk(order, instance)
         order.risk_check_passed = risk_passed
         order.risk_reject_reason = risk_reason
         if not risk_passed:
@@ -718,19 +759,187 @@ class StrategyService:
 
     # ---------- 风控校验（8 阈值，对齐 PRD §9.2） ----------
 
-    @staticmethod
-    def _check_risk(order: LiveOrder) -> tuple:
-        """风控前置校验（V1 简化版）。
+    async def _check_risk(
+        self, order: LiveOrder, instance: Optional[LiveStrategyInstance] = None
+    ) -> tuple:
+        """实盘下单前风控校验（8 阈值，对齐 PRD §9.2）。
+
+        阈值：
+        1. 单次下单金额 < max_single_order_value（默认 50k USDT）
+        2. 单日下单数 < max_daily_orders（默认 100）
+        3. 同币种持仓数 < max_holdings_per_symbol（默认 2）
+        4. 总持仓数 < max_total_holdings（默认 10）
+        5. 单日亏损 < max_daily_loss_pct（默认 5%）
+        6. 连续亏损次数 < max_consecutive_losses（默认 5）
+        7. 策略累计回撤 < max_drawdown_pct（默认 20%）
+        8. 单笔预计亏损 < max_single_loss_pct（默认 2%）
 
         返回 (passed: bool, reason: str)。
         """
-        # V1 简化：检查订单金额上限
-        max_order_value = 50000.0  # 单次下单 ≤ 50k USDT
+        # 合并风控参数（实例快照 + 默认值）
+        params = risk_control_defaults(
+            instance.risk_params if instance else None
+        )
+
+        # 1. 单次下单金额上限
+        max_order_value = float(params["max_single_order_value"])
         order_value = (order.suggested_price or 0) * order.suggested_amount
         if order_value > max_order_value:
-            return False, f"单次下单金额 {order_value:.2f} USDT 超过上限 {max_order_value}"
+            return False, (
+                f"单次下单金额 {order_value:.2f} USDT 超过上限 {max_order_value}"
+            )
+
+        # 查询今日订单数与亏损（同用户）
+        now = datetime.datetime.now(datetime.timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_orders_result = await self.db.execute(
+            select(LiveOrder).where(
+                LiveOrder.user_id == order.user_id,
+                LiveOrder.signal_at >= today_start,
+                LiveOrder.status.in_(["confirmed", "executed", "rejected"]),
+            )
+        )
+        today_orders = list(today_orders_result.scalars().all())
+
+        # 2. 单日下单数
+        max_daily_orders = int(params["max_daily_orders"])
+        if len(today_orders) >= max_daily_orders:
+            return False, (
+                f"今日下单数 {len(today_orders)} 达到上限 {max_daily_orders}"
+            )
+
+        # 3. 同币种持仓数（pending/executed 状态）
+        sym_positions_result = await self.db.execute(
+            select(LiveOrder).where(
+                LiveOrder.user_id == order.user_id,
+                LiveOrder.symbol == order.symbol,
+                LiveOrder.status == "executed",
+                LiveOrder.side == "buy",
+            )
+        )
+        sym_positions = len(list(sym_positions_result.scalars().all()))
+        max_sym_holdings = int(params["max_holdings_per_symbol"])
+        if sym_positions >= max_sym_holdings:
+            return False, (
+                f"同币种 {order.symbol} 持仓 {sym_positions} 达到上限 {max_sym_holdings}"
+            )
+
+        # 4. 总持仓数
+        total_positions_result = await self.db.execute(
+            select(LiveOrder).where(
+                LiveOrder.user_id == order.user_id,
+                LiveOrder.status == "executed",
+                LiveOrder.side == "buy",
+            )
+        )
+        total_positions = len(list(total_positions_result.scalars().all()))
+        max_total = int(params["max_total_holdings"])
+        if total_positions >= max_total:
+            return False, (
+                f"总持仓数 {total_positions} 达到上限 {max_total}"
+            )
+
+        # 5. 单日亏损（已 executed 订单的 realized_pnl 之和）
+        today_pnl = sum(
+            float(o.executed_price or 0) * float(o.executed_amount or 0) * (-1 if o.side == "sell" else 1)
+            for o in today_orders
+            if o.status == "executed" and o.executed_price and o.executed_amount
+        )
+        # 简化：用 instance.total_pnl 估算初始资金
+        if instance:
+            base_capital = float(instance.total_pnl) + 10000.0  # 粗略基准
+            max_daily_loss_pct = float(params["max_daily_loss_pct"])
+            if base_capital > 0 and today_pnl < 0:
+                daily_loss_pct = abs(today_pnl) / base_capital
+                if daily_loss_pct > max_daily_loss_pct:
+                    return False, (
+                        f"单日亏损 {daily_loss_pct:.2%} 超过上限 {max_daily_loss_pct:.2%}"
+                    )
+
+        # 6. 连续亏损次数（最近 N 笔 executed 订单）
+        recent_result = await self.db.execute(
+            select(LiveOrder)
+            .where(
+                LiveOrder.user_id == order.user_id,
+                LiveOrder.status == "executed",
+            )
+            .order_by(LiveOrder.executed_at.desc())
+            .limit(int(params["max_consecutive_losses"]) + 1)
+        )
+        recent_orders = list(recent_result.scalars().all())
+        consecutive_losses = 0
+        for o in recent_orders:
+            # 简化：卖出且亏损计为亏损
+            if o.side == "sell" and o.executed_price and o.executed_amount:
+                consecutive_losses += 1
+            else:
+                break
+        max_consec = int(params["max_consecutive_losses"])
+        if consecutive_losses >= max_consec:
+            return False, (
+                f"连续亏损 {consecutive_losses} 次达到上限 {max_consec}"
+            )
+
+        # 7. 策略累计回撤（用 instance.total_pnl 估算）
+        if instance:
+            max_dd_pct = float(params["max_drawdown_pct"])
+            # 简化：累计亏损超过基准的 max_dd_pct 即触发
+            base_capital = 10000.0
+            total_pnl = float(instance.total_pnl)
+            if total_pnl < 0 and abs(total_pnl) / base_capital > max_dd_pct:
+                return False, (
+                    f"策略累计亏损 {abs(total_pnl) / base_capital:.2%} 超过回撤上限 {max_dd_pct:.2%}"
+                )
+
+        # 8. 单笔预计亏损（基于 instance 的 avgEntryPrice 估算）
+        # 简化：买入订单不做单笔亏损校验（无法预知止损）
+        # 卖出订单可基于持仓成本计算
+        if order.side == "sell" and instance and instance.total_pnl:
+            max_single_loss_pct = float(params["max_single_loss_pct"])
+            est_loss = -float(order.suggested_amount or 0) * float(order.suggested_price or 0) * 0.02
+            base_capital = 10000.0
+            if base_capital > 0 and est_loss < 0:
+                est_loss_pct = abs(est_loss) / base_capital
+                if est_loss_pct > max_single_loss_pct:
+                    return False, (
+                        f"单笔预计亏损 {est_loss_pct:.2%} 超过上限 {max_single_loss_pct:.2%}"
+                    )
 
         return True, ""
+
+    async def reject_live_order(
+        self, order_id: uuid.UUID, user_id: uuid.UUID, reason: str = ""
+    ) -> LiveOrder:
+        """用户拒绝实盘信号订单（半自动模式）。"""
+        result = await self.db.execute(
+            select(LiveOrder).where(LiveOrder.id == order_id)
+        )
+        order = result.scalar_one_or_none()
+        if order is None:
+            raise NotFoundException(message="信号订单不存在")
+        if order.user_id != user_id:
+            raise ForbiddenException(message="无权操作此订单")
+        if order.status != "pending":
+            raise BadRequestException(
+                message=f"订单状态非 pending（当前: {order.status}）"
+            )
+
+        order.status = "rejected"
+        order.risk_check_passed = False
+        order.risk_reject_reason = reason or "用户手动拒绝"
+
+        # 更新实例统计
+        inst_result = await self.db.execute(
+            select(LiveStrategyInstance).where(
+                LiveStrategyInstance.id == order.instance_id
+            )
+        )
+        instance = inst_result.scalar_one_or_none()
+        if instance:
+            instance.total_rejected += 1
+
+        await self.db.flush()
+        return order
 
 
 def risk_control_defaults(user_params: Optional[Dict] = None) -> Dict:

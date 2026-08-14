@@ -41,6 +41,8 @@ celery_app.conf.update(
         "sync_trades": {"queue": "default"},
         "sync_asset_snapshot": {"queue": "default"},
         "sync_all_accounts": {"queue": "default"},
+        "paper_trading_tick": {"queue": "default"},
+        "live_signal_tick": {"queue": "default"},
     },
     # Celery Beat 定时调度
     beat_schedule={
@@ -54,6 +56,16 @@ celery_app.conf.update(
         "sync-asset-snapshot-hourly": {
             "task": "sync_all_accounts",
             "schedule": crontab(minute=0),
+        },
+        # 每 2 分钟处理模拟交易信号（Stage 6.6）
+        "paper-trading-tick-every-2-min": {
+            "task": "paper_trading_tick",
+            "schedule": crontab(minute="*/2"),
+        },
+        # 每 2 分钟处理实盘信号生成（Stage 6.7）
+        "live-signal-tick-every-2-min": {
+            "task": "live_signal_tick",
+            "schedule": crontab(minute="*/2"),
         },
     },
 )

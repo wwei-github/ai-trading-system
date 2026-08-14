@@ -65,6 +65,18 @@ async def _initialize_storage() -> None:
         else:
             logger.debug("默认用户已存在 | id={}", settings.DEFAULT_USER_ID)
 
+        # 初始化内置模板策略（3 套：双均线/RSI 反转/海龟突破）
+        try:
+            from app.services.strategy_service import StrategyService
+
+            strategy_service = StrategyService(session)
+            count = await strategy_service.initialize_templates(default_uid)
+            if count > 0:
+                await session.commit()
+                logger.info("已初始化 {} 套内置模板策略", count)
+        except Exception as exc:
+            logger.warning("模板策略初始化失败（不阻塞启动）：{}", exc)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
