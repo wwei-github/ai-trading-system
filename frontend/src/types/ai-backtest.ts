@@ -62,7 +62,7 @@ export interface AIBacktestCreateResponse {
   initial_capital: number;
   fee_rate: number;
   use_ai: boolean;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelling' | 'cancelled';
   total_klines: number;
   completed_klines: number;
   progress: number;
@@ -86,7 +86,7 @@ export interface AIBacktestDetail {
   initial_capital: number;
   fee_rate: number;
   use_ai: boolean;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelling' | 'cancelled';
   total_klines: number;
   completed_klines: number;
   progress: number;
@@ -114,6 +114,7 @@ export interface AIBacktestSummary {
   ai_calls: number;
   open_count: number;
   close_reasons: Record<string, number>;
+  ai_analysis?: AIBacktestAnalysisResult;
 }
 
 // 交易明细
@@ -141,10 +142,20 @@ export interface AIBacktestTrade {
   created_at: string;
 }
 
+// AI 实时分析（SSE 推送）
+export interface AIBacktestAIAnalysis {
+  trend: 'bullish' | 'bearish' | 'neutral';
+  strength: number;
+  summary: string;
+  decision: 'open_long' | 'open_short' | 'close_long' | 'close_short' | 'hold';
+  confidence: number;
+  reason: string;
+}
+
 // 进度推送
 export interface AIBacktestProgress {
   backtest_id: string;
-  stage: 'preheat' | 'running' | 'summary' | 'done' | 'error';
+  stage: 'preheat' | 'running' | 'summary' | 'done' | 'error' | 'cancelled';
   progress: number;
   current_kline: number;
   total_klines: number;
@@ -156,6 +167,33 @@ export interface AIBacktestProgress {
     unrealized_pnl?: number;
   };
   message: string;
+  ai_analysis?: AIBacktestAIAnalysis;
+  indicators?: {
+    ma5: number;
+    ma10: number;
+    rsi_14: number;
+  };
+}
+
+// 回测结果 AI 分析响应
+export interface AIBacktestAnalysisResult {
+  overall_assessment: string;
+  strengths: string[];
+  weaknesses: string[];
+  market_adaptability: {
+    trend_market: string;
+    range_market: string;
+    volatile_market: string;
+  };
+  improvement_suggestions: string[];
+  score: number;
+}
+
+// 策略优化结果
+export interface AIBacktestOptimizeResult {
+  id: string;
+  name: string;
+  rules: Record<string, any>;
 }
 
 // 历史列表项

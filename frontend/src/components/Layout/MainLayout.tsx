@@ -5,9 +5,6 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   RobotOutlined,
-  CheckCircleFilled,
-  CloudOutlined,
-  LaptopOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -17,11 +14,6 @@ import { aiProviderApi } from '@/api/ai-provider';
 import type { ProviderListResponse } from '@/types';
 
 const { Header, Sider, Content } = Layout;
-
-const PROVIDER_TYPE_MAP: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  ollama: { label: '本地', color: 'blue', icon: <LaptopOutlined /> },
-  openai_compatible: { label: '云端', color: 'green', icon: <CloudOutlined /> },
-};
 
 // 主布局：左侧菜单 + 顶栏 + 内容区
 const MainLayout = () => {
@@ -48,7 +40,6 @@ const MainLayout = () => {
 
   const providers = providerData?.providers || [];
   const activeProvider = providers.find((p) => p.id === providerData?.active_provider_id);
-  const typeInfo = activeProvider ? PROVIDER_TYPE_MAP[activeProvider.type] : null;
 
   // 当前选中的菜单项（取路由路径第一段匹配）
   const selectedKey = useMemo(() => {
@@ -107,12 +98,6 @@ const MainLayout = () => {
                     {activeProvider?.name || '未选择'}
                   </span>
                 </div>
-                {typeInfo && (
-                  <span className="ai-provider-type-tag" data-color={typeInfo.color}>
-                    {typeInfo.icon}
-                    <span>{typeInfo.label}</span>
-                  </span>
-                )}
                 <Select
                   value={activeProvider?.id || undefined}
                   loading={activateMutation.isPending}
@@ -122,32 +107,10 @@ const MainLayout = () => {
                   variant="borderless"
                   popupMatchSelectWidth={260}
                   getPopupContainer={() => document.body}
-                  labelRender={() => null}
-                  optionRender={(option) => {
-                    const p = providers.find((x) => x.id === option.value);
-                    if (!p) return option.label;
-                    const info = PROVIDER_TYPE_MAP[p.type] || PROVIDER_TYPE_MAP.openai_compatible;
-                    const isActive = p.id === activeProvider?.id;
-                    return (
-                      <div className="ai-provider-option">
-                        <div className="ai-provider-option-left">
-                          <span className={`ai-provider-option-dot ${info.color}`} />
-                          <div>
-                            <div className="ai-provider-option-name">
-                              {p.name}
-                              {isActive && <CheckCircleFilled className="ai-provider-option-check" />}
-                            </div>
-                            <div className="ai-provider-option-type">
-                              {info.icon} {info.label} · {p.config.model}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }}
+                  labelRender={() => <span />}
                   options={providers.map((p) => ({
                     value: p.id,
-                    label: p.name,
+                    label: `${p.name}  ·  ${p.config?.model || ''}`,
                     disabled: p.id === activeProvider?.id,
                   }))}
                 />

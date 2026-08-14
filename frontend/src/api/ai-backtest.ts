@@ -5,6 +5,8 @@ import type {
   AIBacktestDetail,
   AIBacktestTrade,
   AIBacktestHistoryItem,
+  AIBacktestAnalysisResult,
+  AIBacktestOptimizeResult,
 } from '@/types';
 
 export const aiBacktestApi = {
@@ -41,6 +43,18 @@ export const aiBacktestApi = {
   /** 取消回测 */
   cancel: (id: string) =>
     request.post(`/strategies/ai-backtest/${id}/cancel`),
+
+  /** 终止运行中的回测 */
+  stop: (id: string) =>
+    request.post(`/strategies/ai-backtest/${id}/stop`),
+
+  /** AI 分析回测结果 */
+  analyze: (id: string) =>
+    request.post<AIBacktestAnalysisResult>(`/strategies/ai-backtest/${id}/analyze`),
+
+  /** 基于回测结果优化策略 */
+  optimize: (id: string) =>
+    request.post<AIBacktestOptimizeResult>(`/strategies/ai-backtest/${id}/optimize`),
 
   /** 获取 SSE 进度 URL */
   getProgressUrl: (id: string) =>

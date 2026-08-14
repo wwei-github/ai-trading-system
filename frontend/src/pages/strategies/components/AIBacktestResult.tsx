@@ -4,7 +4,7 @@ import {
   Button, Empty, message,
 } from 'antd';
 import {
-  ArrowUpOutlined, ArrowDownOutlined, DownloadOutlined,
+  ArrowUpOutlined, ArrowDownOutlined, DownloadOutlined, RobotOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { AIBacktestDetail, AIBacktestTrade } from '@/types/ai-backtest';
@@ -18,9 +18,10 @@ interface Props {
   tradeTotal: number;
   onPageChange?: (page: number) => void;
   page?: number;
+  onAnalyze?: () => void;
 }
 
-export const AIBacktestResult: React.FC<Props> = ({ detail, trades, tradeTotal, onPageChange, page = 1 }) => {
+export const AIBacktestResult: React.FC<Props> = ({ detail, trades, tradeTotal, onPageChange, page = 1, onAnalyze }) => {
   const [selectedTrade, setSelectedTrade] = useState<AIBacktestTrade | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -55,6 +56,23 @@ export const AIBacktestResult: React.FC<Props> = ({ detail, trades, tradeTotal, 
           )}
         </Space>
       </Card>
+
+      {/* AI 分析入口 */}
+      {detail.status === 'completed' && onAnalyze && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space>
+            <Button
+              icon={<RobotOutlined />}
+              onClick={() => onAnalyze?.()}
+            >
+              AI 分析回测结果
+            </Button>
+            {detail.result_summary?.ai_analysis && (
+              <Tag color="success">已分析</Tag>
+            )}
+          </Space>
+        </Card>
+      )}
 
       {/* 指标卡片 */}
       {summary && (
