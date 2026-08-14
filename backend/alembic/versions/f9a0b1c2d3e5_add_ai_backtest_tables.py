@@ -83,6 +83,7 @@ def upgrade() -> None:
         sa.Column("fee", sa.Numeric(precision=20, scale=4), nullable=True),
         sa.Column("extra", postgresql.JSONB(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(
