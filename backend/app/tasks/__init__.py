@@ -79,4 +79,14 @@ celery_app.conf.update(
 # 自动发现任务模块
 celery_app.autodiscover_tasks(["app.tasks"])
 
+# 显式导入所有任务模块，确保 Celery worker 正确注册
+from app.tasks import (
+    book_tasks,
+    sync_tasks,
+    backtest_tasks,
+    paper_trading_tasks,
+    report_tasks,
+    risk_monitor_tasks,
+)
+
 __all__ = ["celery_app"]
