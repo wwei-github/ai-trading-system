@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Card,
@@ -34,6 +34,7 @@ import {
   BookOutlined,
   BulbOutlined,
   QuestionCircleOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import {
   PageContainer,
@@ -82,7 +83,7 @@ const PARSE_STATUS_TAG: Record<ParseStatus, { color: string; text: string }> = {
   failed: { color: 'error', text: '解析失败' },
 };
 
-const FONT_SIZE_OPTIONS = [
+const FONT_SIZE_OPTIONS: { label: string; value: FontSize }[] = [
   { label: '小', value: 'small' },
   { label: '中', value: 'medium' },
   { label: '大', value: 'large' },
@@ -136,6 +137,7 @@ const BooksPage = () => {
 
   const [qaInput, setQaInput] = useState('');
   const [qaMessages, setQaMessages] = useState<QAMessage[]>([]);
+  const [parseProgress, setParseProgress] = useState<number>(0);
 
   const booksQ = useQuery({
     queryKey: ['books', 'list', keyword, category, parseStatus],
@@ -151,6 +153,10 @@ const BooksPage = () => {
     queryKey: ['books', 'detail', selectedBook?.id],
     queryFn: () => selectedBook!.id && bookApi.getDetail(selectedBook!.id),
     enabled: !!selectedBook,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      return data?.parse_status === 'parsing' ? 3000 : false;
+    },
   });
 
   const notesQ = useQuery({
@@ -161,11 +167,44 @@ const BooksPage = () => {
 
   const uploadMutation = useMutation({
     mutationFn: (formData: FormData) => bookApi.upload(formData),
-    onSuccess: () => {
-      message.success('书籍上传成功');
+    onSuccess: (book) => {
+      message.success('书籍上传成功，正在自动解析...');
       queryClient.invalidateQueries({ queryKey: ['books', 'list'] });
+      // 上传后自动触发解析
+      if (book?.id) {
+        parseMutation.mutate(book.id);
+      }
     },
     onError: () => message.error('书籍上传失败'),
+  });
+
+  const parseMutation = useMutation({
+    mutationFn: (id: string) => bookApi.parseContent(id),
+    onSuccess: () => {
+      message.success('解析任务已提交');
+      queryClient.invalidateQueries({ queryKey: ['books', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['books', 'parse-progress'] });
+    },
+    onError: (err: any) => {
+      const msg = err?.message || '';
+      if (msg.includes('already parsing')) {
+        message.info('书籍正在解析中，请稍候');
+      } else {
+        message.error('解析启动失败，请稍后重试');
+      }
+    },
+  });
+
+  const reparseMutation = useMutation({
+    mutationFn: (id: string) => bookApi.reparseContent(id),
+    onSuccess: () => {
+      message.success('重新解析任务已提交');
+      queryClient.invalidateQueries({ queryKey: ['books', 'list'] });
+      queryClient.invalidateQueries({ queryKey: ['books', 'parse-progress'] });
+    },
+    onError: (err: any) => {
+      message.error('重新解析启动失败: ' + (err?.message || '未知错误'));
+    },
   });
 
   const createMutation = useMutation({
@@ -187,16 +226,6 @@ const BooksPage = () => {
       queryClient.invalidateQueries({ queryKey: ['books', 'list'] });
     },
     onError: () => message.error('删除失败'),
-  });
-
-  const parseMutation = useMutation({
-    mutationFn: (id: string) => bookApi.parseContent(id),
-    onSuccess: (res) => {
-      message.success(res.message || '解析任务已提交');
-      queryClient.invalidateQueries({ queryKey: ['books', 'detail'] });
-      queryClient.invalidateQueries({ queryKey: ['books', 'list'] });
-    },
-    onError: () => message.error('解析失败'),
   });
 
   const qaMutation = useMutation({
@@ -538,11 +567,46 @@ const BooksPage = () => {
                       <Title level={5} style={{ margin: 0 }}>
                         {detail?.title || selectedBook.title}
                       </Title>
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {detail?.author || selectedBook.author || '未知作者'}
-                        {detail?.category ? ` · ${detail.category}` : ''}
-                      </Text>
+                      <Space size={8} style={{ marginTop: 2 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {detail?.author || selectedBook.author || '未知作者'}
+                          {detail?.category ? ` · ${detail.category}` : ''}
+                        </Text>
+                        {detail?.parse_status === 'parsing' && (
+                          <Tag icon={<LoadingOutlined />} color="processing">
+                            解析中 {detail?.parse_progress ? `${Math.round(detail.parse_progress * 100)}%` : ''}
+                          </Tag>
+                        )}
+                        {detail?.parse_status === 'failed' && (
+                          <Tag color="error">解析失败</Tag>
+                        )}
+                        {detail?.parse_status === 'completed' && (
+                          <Tag color="success">已解析</Tag>
+                        )}
+                      </Space>
                     </div>
+                    <Space>
+                      {detail?.parse_status === 'completed' && (
+                        <Button
+                          icon={<ReloadOutlined />}
+                          onClick={() => selectedBook && reparseMutation.mutate(selectedBook.id)}
+                          loading={reparseMutation.isPending}
+                          size="small"
+                        >
+                          重新解析
+                        </Button>
+                      )}
+                      {detail?.parse_status === 'failed' && (
+                        <Button
+                          icon={<ReloadOutlined />}
+                          onClick={() => selectedBook && parseMutation.mutate(selectedBook.id)}
+                          loading={parseMutation.isPending}
+                          size="small"
+                        >
+                          重新解析
+                        </Button>
+                      )}
+                    </Space>
                   </Space>
                   <Segmented<ReaderMode>
                     value={readerMode}
@@ -768,8 +832,8 @@ const BooksPage = () => {
                       </Space>
                       <Button
                         icon={<ReloadOutlined />}
-                        onClick={() => selectedBook && parseMutation.mutate(selectedBook.id)}
-                        loading={parseMutation.isPending}
+                        onClick={() => selectedBook && reparseMutation.mutate(selectedBook.id)}
+                        loading={reparseMutation.isPending}
                       >
                         重新提取
                       </Button>

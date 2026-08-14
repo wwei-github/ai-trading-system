@@ -1,6 +1,7 @@
 import request from './request';
 import type {
   Book,
+  BookChapter,
   BookCreateData,
   BookUpdateData,
   BookListParams,
@@ -9,6 +10,7 @@ import type {
   BookNoteCreateData,
   BookQAResponse,
   BookParseResult,
+  BookParseProgress,
 } from '@/types';
 
 export const bookApi = {
@@ -52,6 +54,26 @@ export const bookApi = {
 
   async parseContent(id: string): Promise<BookParseResult> {
     const res = await request.post<BookParseResult>(`/books/${id}/parse`);
+    return res.data;
+  },
+
+  async reparseContent(id: string): Promise<BookParseResult> {
+    const res = await request.post<BookParseResult>(`/books/${id}/reparse`);
+    return res.data;
+  },
+
+  async getParseProgress(id: string): Promise<BookParseProgress> {
+    const res = await request.get<BookParseProgress>(`/books/${id}/parse/progress`);
+    return res.data;
+  },
+
+  async getChapters(id: string): Promise<BookChapter[]> {
+    const res = await request.get<BookChapter[]>(`/books/${id}/chapters`);
+    return res.data;
+  },
+
+  async getChapterContent(id: string, chapterOrder: number): Promise<BookChapter> {
+    const res = await request.get<BookChapter>(`/books/${id}/chapters/${chapterOrder}`);
     return res.data;
   },
 

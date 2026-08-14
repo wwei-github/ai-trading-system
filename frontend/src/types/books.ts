@@ -53,6 +53,17 @@ export interface BookNote {
   created_at: string;
 }
 
+export interface BookChapter {
+  id: string;
+  title: string;
+  chapter_order: number;
+  page_start?: number;
+  page_end?: number;
+  char_count: number;
+  level: number;
+  content?: string;
+}
+
 export interface BookListParams extends PageParams {
   keyword?: string;
   category?: string;
@@ -89,4 +100,12 @@ export interface BookQAResponse {
 export interface BookParseResult {
   task_id: string;
   message: string;
+}
+
+export interface BookParseProgress {
+  book_id: string;
+  status: ParseStatus;
+  progress: number;
+  total_chapters?: number;
+  total_chunks?: number;
 }
