@@ -87,3 +87,35 @@ async def check_db_connection() -> bool:
         return True
     except Exception:
         return False
+
+
+# ---------- Redis 客户端（带降级；连不上时返回 None，业务可优雅跳过缓存） ----------
+
+redis_client = None
+
+try:
+    if not settings.uses_sqlite():
+        import redis.asyncio as aioredis
+
+        redis_client = aioredis.from_url(
+            settings.REDIS_URL,
+            encoding="utf-8",
+            decode_responses=True,
+            socket_connect_timeout=2,
+            socket_timeout=2,
+            retry_on_timeout=False,
+        )
+except Exception:
+    # Redis 未启动或未安装 redis 包时，保持 None；业务层需做 None 检查
+    redis_client = None
+
+
+async def check_redis_connection() -> bool:
+    """检查 Redis 连接是否正常。"""
+    if redis_client is None:
+        return False
+    try:
+        await redis_client.ping()
+        return True
+    except Exception:
+        return False
