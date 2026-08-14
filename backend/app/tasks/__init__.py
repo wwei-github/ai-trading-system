@@ -36,6 +36,7 @@ celery_app.conf.update(
     # 队列配置：长任务（回测、报告）使用独立队列避免阻塞数据同步
     task_routes={
         "run_backtest": {"queue": "backtest"},
+        "run_ai_backtest": {"queue": "celery"},
         "generate_report": {"queue": "report"},
         "parse_book": {"queue": "celery"},
         "sync_trades": {"queue": "celery"},
@@ -81,6 +82,7 @@ celery_app.autodiscover_tasks(["app.tasks"])
 
 # 显式导入所有任务模块，确保 Celery worker 正确注册
 from app.tasks import (
+    ai_backtest_tasks,
     book_tasks,
     sync_tasks,
     backtest_tasks,
