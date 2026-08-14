@@ -15,8 +15,11 @@ from app.models.auth import (
     RefreshToken,
 )
 from app.models.backtest import Backtest
+from app.models.backtest_trade import BacktestTrade
 from app.models.base import Base
 from app.models.book import Book, BookNote, KnowledgeChunk
+from app.models.live_trading import LiveOrder, LiveStrategyInstance
+from app.models.paper_trading import PaperAccount, PaperTrade
 from app.models.signal import Signal
 from app.models.strategy import Strategy
 from app.models.trade import Trade
@@ -34,6 +37,11 @@ __all__ = [
     "Watchlist",
     "Strategy",
     "Backtest",
+    "BacktestTrade",
+    "PaperAccount",
+    "PaperTrade",
+    "LiveStrategyInstance",
+    "LiveOrder",
     "Book",
     "BookNote",
     "KnowledgeChunk",

@@ -3,7 +3,7 @@
 import uuid
 from typing import Optional
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,7 +32,7 @@ class Strategy(Base):
     # 策略描述
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # 策略规则（结构化）
+    # 策略规则（结构化 DSL，对齐 StrategyDSL）
     rules: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     # 策略参数
@@ -46,4 +46,9 @@ class Strategy(Base):
     # 状态：draft / active / archived
     status: Mapped[str] = mapped_column(
         String(20), default="draft", nullable=False
+    )
+
+    # 是否为内置模板策略
+    is_template: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
     )
