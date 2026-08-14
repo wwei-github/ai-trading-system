@@ -7,11 +7,12 @@ export interface Strategy {
   user_id: string;
   name: string;
   description?: string;
-  strategy_type: string;
+  category: string;
   status: StrategyStatus;
   rules: Record<string, unknown>;
-  risk_controls: Record<string, unknown>;
+  params?: Record<string, unknown>;
   source_book_id?: string;
+  is_template: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -19,9 +20,9 @@ export interface Strategy {
 export interface StrategyCreateData {
   name: string;
   description?: string;
-  strategy_type: string;
+  category: string;
   rules?: Record<string, unknown>;
-  risk_controls?: Record<string, unknown>;
+  params?: Record<string, unknown>;
   status?: StrategyStatus;
   source_book_id?: string;
 }
@@ -29,8 +30,9 @@ export interface StrategyCreateData {
 export interface StrategyUpdateData {
   name?: string;
   description?: string;
+  category?: string;
   rules?: Record<string, unknown>;
-  risk_controls?: Record<string, unknown>;
+  params?: Record<string, unknown>;
   status?: StrategyStatus;
 }
 
@@ -79,7 +81,7 @@ export interface TradeLog {
 
 export interface StrategyListParams extends PageParams {
   status?: StrategyStatus;
-  strategy_type?: string;
+  category?: string;
   keyword?: string;
 }
 

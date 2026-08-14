@@ -31,9 +31,9 @@ export const strategyApi = {
     return res.data;
   },
 
-  async delete(id: string): Promise<{ deleted: boolean }> {
+  async delete(id: string): Promise<void> {
     const res = await request.delete<{ deleted: boolean }>(`/strategies/${id}`);
-    return res.data;
+    return res.data as unknown as void;
   },
 
   async backtest(id: string, params: BacktestParams): Promise<BacktestRecord> {

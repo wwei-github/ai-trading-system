@@ -11,6 +11,8 @@ import type {
   BookQAResponse,
   BookParseResult,
   BookParseProgress,
+  BookAnalyzeResult,
+  Strategy,
 } from '@/types';
 
 export const bookApi = {
@@ -31,9 +33,7 @@ export const bookApi = {
 
   async upload(formData: FormData): Promise<Book> {
     const res = await request.post<Book>('/books/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+      headers: { 'Content-Type': 'multipart/form-data' },
     });
     return res.data;
   },
@@ -68,12 +68,25 @@ export const bookApi = {
   },
 
   async getChapters(id: string): Promise<BookChapter[]> {
-    const res = await request.get<BookChapter[]>(`/books/${id}/chapters`);
-    return res.data;
+    const res = await request.get<{ items: BookChapter[] }>(`/books/${id}/chapters`);
+    return res.data.items;
   },
 
   async getChapterContent(id: string, chapterOrder: number): Promise<BookChapter> {
     const res = await request.get<BookChapter>(`/books/${id}/chapters/${chapterOrder}`);
+    return res.data;
+  },
+
+  async analyze(
+    bookId: string,
+    data: { save_strategy: boolean; strategy_name?: string },
+  ): Promise<BookAnalyzeResult> {
+    const res = await request.post<BookAnalyzeResult>(`/books/${bookId}/analyze`, data);
+    return res.data;
+  },
+
+  async getStrategies(bookId: string): Promise<Strategy[]> {
+    const res = await request.get<Strategy[]>(`/books/${bookId}/strategies`);
     return res.data;
   },
 

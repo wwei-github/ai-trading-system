@@ -18,11 +18,15 @@ import {
   Switch,
   Card,
   Tag,
+  Descriptions,
+  Divider,
+  Typography,
 } from 'antd';
 import {
   PlusOutlined,
   ReloadOutlined,
   EditOutlined,
+  EyeOutlined,
   SearchOutlined,
   PlayCircleOutlined,
   PauseCircleOutlined,
@@ -55,11 +59,14 @@ import type {
   BacktestResult,
 } from '@/types';
 
-const STRATEGY_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
+const STRATEGY_CATEGORY_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'trend', label: '趋势策略' },
+  { value: 'mean_reversion', label: '均值回归' },
   { value: 'grid', label: '网格策略' },
   { value: 'martingale', label: '马丁格尔' },
   { value: 'momentum', label: '动量策略' },
-  { value: 'mean_reversion', label: '均值回归' },
+  { value: 'breakout', label: '突破策略' },
+  { value: 'arbitrage', label: '套利策略' },
   { value: 'custom', label: '自定义策略' },
 ];
 
@@ -81,6 +88,8 @@ interface BacktestFormValues {
   symbol: string;
 }
 
+type RuleEditMode = 'structured' | 'json';
+
 const StrategiesPage = () => {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabKey>('library');
@@ -92,6 +101,10 @@ const StrategiesPage = () => {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [currentRecord, setCurrentRecord] = useState<Strategy | null>(null);
+  const [ruleEditMode, setRuleEditMode] = useState<RuleEditMode>('structured');
+
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [detailRecord, setDetailRecord] = useState<Strategy | null>(null);
 
   const [backtestForm] = Form.useForm<BacktestFormValues>();
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
@@ -115,18 +128,15 @@ const StrategiesPage = () => {
     const list = strategies || [];
     return list.filter((s) => {
       if (searchParams.status && s.status !== searchParams.status) return false;
-      if (searchParams.strategy_type && s.strategy_type !== searchParams.strategy_type) return false;
+      if (searchParams.category && s.category !== searchParams.category) return false;
       if (searchParams.keyword) {
         const kw = searchParams.keyword.toLowerCase();
-        if (
-          !s.name.toLowerCase().includes(kw) &&
-          !(s.description?.toLowerCase().includes(kw))
-        )
+        if (!s.name.toLowerCase().includes(kw) && !s.description?.toLowerCase().includes(kw))
           return false;
       }
       return true;
     });
-  }, [strategies, searchParams.status, searchParams.strategy_type, searchParams.keyword]);
+  }, [strategies, searchParams.status, searchParams.category, searchParams.keyword]);
 
   const paperStrategies = useMemo(
     () => (strategies || []).filter((s) => s.status === 'running' || s.status === 'active'),
@@ -313,11 +323,11 @@ const StrategiesPage = () => {
         ),
       },
       {
-        name: 'strategy_type',
+        name: 'category',
         label: '策略类型',
         element: (
           <Select allowClear placeholder="全部类型">
-            {STRATEGY_TYPE_OPTIONS.map((o) => (
+            {STRATEGY_CATEGORY_OPTIONS.map((o) => (
               <Select.Option key={o.value} value={o.value}>
                 {o.label}
               </Select.Option>
@@ -328,9 +338,7 @@ const StrategiesPage = () => {
       {
         name: 'keyword',
         label: '关键字',
-        element: (
-          <Input allowClear prefix={<SearchOutlined />} placeholder="策略名称/描述" />
-        ),
+        element: <Input allowClear prefix={<SearchOutlined />} placeholder="策略名称/描述" />,
       },
     ],
     [],
@@ -354,11 +362,11 @@ const StrategiesPage = () => {
       },
       {
         title: '策略类型',
-        dataIndex: 'strategy_type',
-        key: 'strategy_type',
+        dataIndex: 'category',
+        key: 'category',
         width: 140,
         render: (v: string) => {
-          const opt = STRATEGY_TYPE_OPTIONS.find((o) => o.value === v);
+          const opt = STRATEGY_CATEGORY_OPTIONS.find((o) => o.value === v);
           return opt?.label || v;
         },
       },
@@ -367,9 +375,7 @@ const StrategiesPage = () => {
         dataIndex: 'status',
         key: 'status',
         width: 100,
-        render: (v: StrategyStatus) => (
-          <StatusTag status={v} mapping={STRATEGY_STATUS_MAP} />
-        ),
+        render: (v: StrategyStatus) => <StatusTag status={v} mapping={STRATEGY_STATUS_MAP} />,
       },
       {
         title: '创建时间',
@@ -381,10 +387,21 @@ const StrategiesPage = () => {
       {
         title: '操作',
         key: 'actions',
-        width: 260,
+        width: 320,
         fixed: 'right' as const,
         render: (_: any, record: Strategy) => (
           <Space size="small">
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              onClick={() => {
+                setDetailRecord(record);
+                setDetailModalOpen(true);
+              }}
+            >
+              详情
+            </Button>
             <Switch
               size="small"
               checked={record.status === 'active' || record.status === 'running'}
@@ -433,11 +450,11 @@ const StrategiesPage = () => {
       },
       {
         title: '策略类型',
-        dataIndex: 'strategy_type',
-        key: 'strategy_type',
+        dataIndex: 'category',
+        key: 'category',
         width: 140,
         render: (v: string) => {
-          const opt = STRATEGY_TYPE_OPTIONS.find((o) => o.value === v);
+          const opt = STRATEGY_CATEGORY_OPTIONS.find((o) => o.value === v);
           return opt?.label || v;
         },
       },
@@ -505,11 +522,11 @@ const StrategiesPage = () => {
       },
       {
         title: '策略类型',
-        dataIndex: 'strategy_type',
-        key: 'strategy_type',
+        dataIndex: 'category',
+        key: 'category',
         width: 140,
         render: (v: string) => {
-          const opt = STRATEGY_TYPE_OPTIONS.find((o) => o.value === v);
+          const opt = STRATEGY_CATEGORY_OPTIONS.find((o) => o.value === v);
           return opt?.label || v;
         },
       },
@@ -649,12 +666,44 @@ const StrategiesPage = () => {
   );
 
   const handleModalSubmit = async (values: any) => {
+    let rules: Record<string, unknown>;
+
+    if (ruleEditMode === 'structured') {
+      const structuredRules: Record<string, unknown> = {};
+      if (values.entry_rules) {
+        try {
+          structuredRules.entry_rules = parseJsonText(values.entry_rules);
+        } catch {
+          structuredRules.entry_rules = values.entry_rules;
+        }
+      }
+      if (values.exit_rules) {
+        try {
+          structuredRules.exit_rules = parseJsonText(values.exit_rules);
+        } catch {
+          structuredRules.exit_rules = values.exit_rules;
+        }
+      }
+      if (values.position_sizing) {
+        try {
+          structuredRules.position_sizing = parseJsonText(values.position_sizing);
+        } catch {
+          structuredRules.position_sizing = values.position_sizing;
+        }
+      }
+      if (values.risk_control) {
+        structuredRules.risk_control = parseJsonText(values.risk_control);
+      }
+      rules = structuredRules;
+    } else {
+      rules = parseJsonText(values.rules);
+    }
+
     const payload: StrategyCreateData = {
       name: values.name,
       description: values.description,
-      strategy_type: values.strategy_type,
-      rules: parseJsonText(values.rules),
-      risk_controls: parseJsonText(values.risk_controls),
+      category: values.category,
+      rules,
     };
     if (modalMode === 'create') {
       await createMutation.mutateAsync(payload);
@@ -944,9 +993,13 @@ const StrategiesPage = () => {
             ? {
                 name: currentRecord.name,
                 description: currentRecord.description,
-                strategy_type: currentRecord.strategy_type,
+                category: currentRecord.category,
                 rules: stringifyJson(currentRecord.rules),
-                risk_controls: stringifyJson(currentRecord.risk_controls),
+                params: stringifyJson(currentRecord.params),
+                entry_rules: stringifyJson((currentRecord.rules as any)?.entry_rules),
+                exit_rules: stringifyJson((currentRecord.rules as any)?.exit_rules),
+                position_sizing: stringifyJson((currentRecord.rules as any)?.position_sizing),
+                risk_control: stringifyJson(currentRecord.params),
               }
             : undefined
         }
@@ -967,11 +1020,11 @@ const StrategiesPage = () => {
 
         <Form.Item
           label="策略类型"
-          name="strategy_type"
+          name="category"
           rules={[{ required: true, message: '请选择策略类型' }]}
         >
           <Select placeholder="请选择策略类型">
-            {STRATEGY_TYPE_OPTIONS.map((o) => (
+            {STRATEGY_CATEGORY_OPTIONS.map((o) => (
               <Select.Option key={o.value} value={o.value}>
                 {o.label}
               </Select.Option>
@@ -979,30 +1032,117 @@ const StrategiesPage = () => {
           </Select>
         </Form.Item>
 
-        <Form.Item
-          label="策略规则 (JSON)"
-          name="rules"
-          extra={'请输入合法 JSON 格式，如 {"grid_spacing": 0.01, "grid_count": 50}'}
-        >
-          <Input.TextArea
-            placeholder='{"grid_spacing": 0.01, "grid_count": 50, "lower_price": 30000, "upper_price": 50000}'
-            rows={5}
-            style={{ fontFamily: 'monospace' }}
-          />
-        </Form.Item>
+        <Tabs
+          activeKey={ruleEditMode}
+          onChange={(k) => setRuleEditMode(k as RuleEditMode)}
+          items={[
+            {
+              key: 'structured',
+              label: '结构化编辑',
+              children: (
+                <>
+                  <Form.Item label="入场规则" name="entry_rules">
+                    <Input.TextArea
+                      rows={4}
+                      placeholder='[{"logic": "AND", "conditions": [{"indicator": "MA5", "operator": "gt", "value": "MA20", "description": "5日均线上穿20日均线"}]}]'
+                      style={{ fontFamily: 'monospace', fontSize: 12 }}
+                    />
+                  </Form.Item>
+                  <Form.Item label="出场规则" name="exit_rules">
+                    <Input.TextArea
+                      rows={4}
+                      placeholder='[{"logic": "OR", "conditions": [{"indicator": "price", "operator": "lt", "value": "stop_loss", "description": "触发止损"}]}]'
+                      style={{ fontFamily: 'monospace', fontSize: 12 }}
+                    />
+                  </Form.Item>
+                  <Form.Item label="仓位管理" name="position_sizing">
+                    <Input.TextArea
+                      rows={3}
+                      placeholder='{"method": "fixed_fraction", "fraction": 0.1, "description": "每次开仓使用10%资金"}'
+                      style={{ fontFamily: 'monospace', fontSize: 12 }}
+                    />
+                  </Form.Item>
+                  <Form.Item label="风控规则" name="risk_control">
+                    <Input.TextArea
+                      rows={3}
+                      placeholder='{"stop_loss_pct": 0.05, "take_profit_pct": 0.15, "max_drawdown_pct": 0.2}'
+                      style={{ fontFamily: 'monospace', fontSize: 12 }}
+                    />
+                  </Form.Item>
+                </>
+              ),
+            },
+            {
+              key: 'json',
+              label: 'JSON 编辑',
+              children: (
+                <>
+                  <Form.Item
+                    label="策略规则 (JSON)"
+                    name="rules"
+                    extra={'请输入合法 JSON 格式，如 {"grid_spacing": 0.01, "grid_count": 50}'}
+                  >
+                    <Input.TextArea
+                      placeholder='{"grid_spacing": 0.01, "grid_count": 50, "lower_price": 30000, "upper_price": 50000}'
+                      rows={5}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </Form.Item>
 
-        <Form.Item
-          label="风险控制 (JSON)"
-          name="risk_controls"
-          extra={'请输入合法 JSON 格式，如 {"max_position": 10000, "stop_loss": 0.1}'}
-        >
-          <Input.TextArea
-            placeholder='{"max_position": 10000, "stop_loss": 0.1, "take_profit": 0.3, "max_daily_loss": 500}'
-            rows={4}
-            style={{ fontFamily: 'monospace' }}
-          />
-        </Form.Item>
+                  <Form.Item
+                    label="风险控制 (JSON)"
+                    name="risk_controls"
+                    extra={'请输入合法 JSON 格式，如 {"max_position": 10000, "stop_loss": 0.1}'}
+                  >
+                    <Input.TextArea
+                      placeholder='{"max_position": 10000, "stop_loss": 0.1, "take_profit": 0.3, "max_daily_loss": 500}'
+                      rows={4}
+                      style={{ fontFamily: 'monospace' }}
+                    />
+                  </Form.Item>
+                </>
+              ),
+            },
+          ]}
+        />
       </CrudModal>
+
+      {/* 策略详情弹窗 */}
+      <Modal
+        title={`策略详情 - ${detailRecord?.name}`}
+        open={detailModalOpen}
+        onCancel={() => setDetailModalOpen(false)}
+        width={700}
+        footer={null}
+      >
+        <Descriptions column={2} bordered size="small">
+          <Descriptions.Item label="名称">{detailRecord?.name}</Descriptions.Item>
+          <Descriptions.Item label="类型">{detailRecord?.category}</Descriptions.Item>
+          <Descriptions.Item label="状态">
+            <StatusTag status={detailRecord?.status} mapping={STRATEGY_STATUS_MAP} />
+          </Descriptions.Item>
+          <Descriptions.Item label="创建时间">
+            {dayjs(detailRecord?.created_at).format('YYYY-MM-DD HH:mm')}
+          </Descriptions.Item>
+          <Descriptions.Item label="描述" span={2}>
+            {detailRecord?.description || '-'}
+          </Descriptions.Item>
+        </Descriptions>
+        <Divider />
+        <Typography.Title level={5}>策略规则</Typography.Title>
+        <pre
+          style={{
+            fontSize: 12,
+            background: '#f5f5f5',
+            padding: 16,
+            borderRadius: 6,
+            maxHeight: 300,
+            overflow: 'auto',
+          }}
+        >
+          {JSON.stringify(detailRecord?.rules, null, 2)}
+        </pre>
+      </Modal>
     </PageContainer>
   );
 };
