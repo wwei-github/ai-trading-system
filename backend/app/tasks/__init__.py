@@ -37,13 +37,13 @@ celery_app.conf.update(
     task_routes={
         "run_backtest": {"queue": "backtest"},
         "generate_report": {"queue": "report"},
-        "parse_book": {"queue": "default"},
-        "sync_trades": {"queue": "default"},
-        "sync_asset_snapshot": {"queue": "default"},
-        "sync_all_accounts": {"queue": "default"},
-        "paper_trading_tick": {"queue": "default"},
-        "live_signal_tick": {"queue": "default"},
-        "monitor_live_risk": {"queue": "default"},
+        "parse_book": {"queue": "celery"},
+        "sync_trades": {"queue": "celery"},
+        "sync_asset_snapshot": {"queue": "celery"},
+        "sync_all_accounts": {"queue": "celery"},
+        "paper_trading_tick": {"queue": "celery"},
+        "live_signal_tick": {"queue": "celery"},
+        "monitor_live_risk": {"queue": "celery"},
     },
     # Celery Beat 定时调度
     beat_schedule={

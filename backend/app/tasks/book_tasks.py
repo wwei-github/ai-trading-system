@@ -334,11 +334,25 @@ async def _parse_book_async(book_id: str) -> dict:
             logger.error("书籍不存在: {}", book_id)
             return {"book_id": book_id, "status": "failed", "reason": "book_not_found"}
 
-        if not book.file_path or not os.path.exists(book.file_path):
+        # 使用绝对路径
+        if not book.file_path:
             service = BookService(session)
             await service.update_parse_status(book_uuid, "failed")
             await session.commit()
             return {"book_id": book_id, "status": "failed", "reason": "file_not_found"}
+        
+        # 如果是相对路径，基于当前工作目录转为绝对路径
+        if not os.path.isabs(book.file_path):
+            abs_path = os.path.join(os.getcwd(), book.file_path)
+        else:
+            abs_path = book.file_path
+        
+        if not os.path.exists(abs_path):
+            logger.error("文件不存在: {}", abs_path)
+            service = BookService(session)
+            await service.update_parse_status(book_uuid, "failed")
+            await session.commit()
+            return {"book_id": book_id, "status": "failed", "reason": f"file_not_found: {abs_path}"}
 
         try:
             # 更新阶段辅助函数
@@ -373,8 +387,11 @@ async def _parse_book_async(book_id: str) -> dict:
             # 阶段 1: 文件解析
             await update_parse_stage("file_parsing", 10, "正在解析文件格式")
             full_text, chapters = extract_text_and_chapters(
-                book.file_path, book.file_type or ""
+                abs_path, book.file_type or ""
             )
+            logger.info("提取完成 | full_text_len={} chapters={}", len(full_text), len(chapters))
+            if chapters:
+                logger.info("首章 | title={} content_len={}", chapters[0]["title"], len(chapters[0].get("content", "") or ""))
             logger.info(
                 "书籍提取完成 | book_id={} 字符数={} 章节数={}",
                 book_id, len(full_text), len(chapters),
@@ -386,14 +403,16 @@ async def _parse_book_async(book_id: str) -> dict:
             await session.execute(delete(KnowledgeChunk).where(KnowledgeChunk.book_id == book_uuid))
 
             for ch in chapters:
+                ch_content = ch["content"] or ""
+                logger.debug("保存章节 | title={} content_len={}", ch["title"], len(ch_content))
                 chapter = BookChapter(
                     book_id=book_uuid,
                     title=ch["title"],
                     chapter_order=ch["chapter_order"],
-                    content=ch["content"],
+                    content=ch_content,
                     page_start=ch.get("page_start"),
                     page_end=ch.get("page_end"),
-                    char_count=ch.get("char_count", len(ch["content"])),
+                    char_count=ch.get("char_count", len(ch_content)),
                     level=ch.get("level", 1),
                 )
                 session.add(chapter)
@@ -439,9 +458,9 @@ async def _parse_book_async(book_id: str) -> dict:
             book.parse_progress = 100
             book.parse_stage = "done"
             book.parse_stage_progress = 100
+            book.parse_stage_description = f"解析完成：{len(chapters)} 章 / {saved} 块"
             await session.commit()
 
-            await update_parse_stage("done", 100, f"解析完成：{len(chapters)} 章 / {saved} 块")
             logger.info("书籍解析完成 | book_id={} chapters={} chunks={}", book_id, len(chapters), saved)
             return {"book_id": book_id, "status": "completed", "chapters": len(chapters), "chunks": saved}
 

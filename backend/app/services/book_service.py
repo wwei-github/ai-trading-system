@@ -29,7 +29,8 @@ from app.schemas.book import (
     KnowledgeExtractionRequest,
     KnowledgeExtractionResponse,
 )
-from app.services.llm_provider import get_llm_provider
+from app.services.llm_provider import LLMProvider
+from app.services.provider_factory import ProviderFactory
 
 # 允许上传的文件扩展名
 ALLOWED_EXTENSIONS = {"pdf", "epub", "txt"}
@@ -62,7 +63,13 @@ class BookService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.llm = get_llm_provider()
+        self._llm: LLMProvider | None = None
+
+    async def _get_llm(self) -> LLMProvider:
+        """获取当前激活的LLM Provider（懒加载+缓存）。"""
+        if self._llm is None:
+            self._llm = await ProviderFactory.get_active_provider(self.db)
+        return self._llm
 
     # ---------- 书籍 CRUD ----------
 
@@ -305,7 +312,7 @@ class BookService:
         book.parse_error_message = None
         book.parsed_chapters = 0
         book.parsed_chunks = 0
-        await self.db.flush()
+        await self.db.commit()
 
         # 异步派发解析任务（延迟导入避免循环依赖）
         from app.tasks.book_tasks import parse_book
@@ -366,7 +373,7 @@ class BookService:
         book.total_chunks = 0
         book.parsed_chapters = 0
         book.parsed_chunks = 0
-        await self.db.flush()
+        await self.db.commit()
 
         # 异步派发解析任务
         from app.tasks.book_tasks import parse_book
@@ -582,30 +589,30 @@ class BookService:
             return []
 
         # 尝试向量检索
-        if settings.LLM_API_KEY:
-            try:
-                query_emb = await self.llm.embed([query])
-                if query_emb and query_emb[0]:
-                    q_vec = query_emb[0]
-                    scored: List[Tuple[KnowledgeChunk, float]] = []
-                    for c in chunks:
-                        if not c.embedding:
-                            continue
-                        try:
-                            c_vec = json.loads(c.embedding)
-                        except (json.JSONDecodeError, TypeError):
-                            continue
-                        sim = _cosine_similarity(q_vec, c_vec)
-                        scored.append((c, sim))
-                    if scored:
-                        scored.sort(key=lambda x: x[1], reverse=True)
-                        return scored[:top_k]
-            except Exception as e:  # noqa: BLE001
-                # 向量检索失败，降级到关键词匹配
-                import logging
-                logging.getLogger(__name__).warning(
-                    "向量检索失败，降级关键词匹配: %s", e
-                )
+        try:
+            llm = await self._get_llm()
+            query_emb = await llm.embed([query])
+            if query_emb and query_emb[0]:
+                q_vec = query_emb[0]
+                scored: List[Tuple[KnowledgeChunk, float]] = []
+                for c in chunks:
+                    if not c.embedding:
+                        continue
+                    try:
+                        c_vec = json.loads(c.embedding)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    sim = _cosine_similarity(q_vec, c_vec)
+                    scored.append((c, sim))
+                if scored:
+                    scored.sort(key=lambda x: x[1], reverse=True)
+                    return scored[:top_k]
+        except Exception as e:  # noqa: BLE001
+            # 向量检索失败，降级到关键词匹配
+            import logging
+            logging.getLogger(__name__).warning(
+                "向量检索失败，降级关键词匹配: %s", e
+            )
 
         # 降级：关键词匹配
         return self._keyword_match(chunks, query, top_k)
@@ -691,7 +698,8 @@ class BookService:
             },
             {"role": "user", "content": data.question},
         ]
-        answer = await self.llm.chat(messages)
+        llm = await self._get_llm()
+        answer = await llm.chat(messages)
 
         return {
             "answer": answer,
@@ -792,7 +800,8 @@ class BookService:
                 "content": "请基于以上内容提取交易策略知识。",
             },
         ]
-        raw = await self.llm.chat(messages, temperature=0.3)
+        llm = await self._get_llm()
+        raw = await llm.chat(messages, temperature=0.3)
 
         # 解析 6 部分
         parts = self._parse_strategy_sections(raw)
@@ -1043,7 +1052,14 @@ class BookService:
             },
         ]
 
-        analyze_raw = await self.llm.chat(analyze_messages, temperature=0.3)
+        try:
+            llm = await self._get_llm()
+            analyze_raw = await llm.chat(analyze_messages, temperature=0.3)
+        except ValueError as e:
+            raise BadRequestException(
+                message=str(e),
+                detail={"config": "LLM_API_KEY", "hint": "请在系统设置中配置 AI Provider"},
+            )
 
         # 解析 JSON 结果
         import json
@@ -1118,7 +1134,14 @@ class BookService:
             },
         ]
 
-        system_raw = await self.llm.chat(system_messages, temperature=0.3)
+        try:
+            llm = await self._get_llm()
+            system_raw = await llm.chat(system_messages, temperature=0.3)
+        except ValueError as e:
+            raise BadRequestException(
+                message=str(e),
+                detail={"config": "LLM_API_KEY", "hint": "请在系统设置中配置 AI Provider"},
+            )
 
         # 解析 JSON
         start = system_raw.find("{")
