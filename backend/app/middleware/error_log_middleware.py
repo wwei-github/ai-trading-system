@@ -126,45 +126,43 @@ async def error_log_middleware(request: Request, call_next) -> Response:
         elif status_code in WARNING_STATUS_CODES:
             level = "WARNING"
 
-        if level is None:
-            return
+        if level is not None:
+            # 获取请求参数
+            try:
+                if request.method == "GET":
+                    request_params = dict(request.query_params)
+                else:
+                    request_params = await _try_get_request_body(request)
+            except Exception:
+                pass
 
-        # 获取请求参数
-        try:
-            if request.method == "GET":
-                request_params = dict(request.query_params)
-            else:
-                request_params = await _try_get_request_body(request)
-        except Exception:
-            pass
-
-        # 异步写入数据库
-        try:
-            async with async_session_maker() as db:
-                service = ErrorLogService(db)
-                await service.log_error(
-                    level=level,
-                    module=module,
-                    message=error or f"HTTP {status_code}",
-                    request_id=request_id,
-                    exception_type=exception_type,
-                    traceback=traceback_str,
-                    request_path=path,
-                    request_method=method,
-                    request_params=request_params,
-                    status_code=status_code,
-                    user_id=user_id,
-                    user_ip=ip,
-                    user_agent=ua,
-                    duration_ms=round(duration_ms, 2),
-                    detail={
-                        "headers": {
-                            k: v
-                            for k, v in request.headers.items()
-                            if k.lower() not in ("authorization", "cookie")
+            # 异步写入数据库
+            try:
+                async with async_session_maker() as db:
+                    service = ErrorLogService(db)
+                    await service.log_error(
+                        level=level,
+                        module=module,
+                        message=error or f"HTTP {status_code}",
+                        request_id=request_id,
+                        exception_type=exception_type,
+                        traceback=traceback_str,
+                        request_path=path,
+                        request_method=method,
+                        request_params=request_params,
+                        status_code=status_code,
+                        user_id=user_id,
+                        user_ip=ip,
+                        user_agent=ua,
+                        duration_ms=round(duration_ms, 2),
+                        detail={
+                            "headers": {
+                                k: v
+                                for k, v in request.headers.items()
+                                if k.lower() not in ("authorization", "cookie")
+                            },
                         },
-                    },
-                )
-                await db.commit()
-        except Exception as log_err:
-            logger.warning(f"写入错误日志失败: {log_err}")
+                    )
+                    await db.commit()
+            except Exception as log_err:
+                logger.warning(f"写入错误日志失败: {log_err}")

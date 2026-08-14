@@ -1,15 +1,5 @@
 import type { ComponentType } from 'react';
-import {
-  DashboardOutlined,
-  BankOutlined,
-  SwapOutlined,
-  BarChartOutlined,
-  DotChartOutlined,
-  ThunderboltOutlined,
-  BookOutlined,
-  RobotOutlined,
-  SettingOutlined,
-} from '@ant-design/icons';
+import { DashboardOutlined, BankOutlined, SwapOutlined, BarChartOutlined, DotChartOutlined, ThunderboltOutlined, BookOutlined, RobotOutlined, SettingOutlined, WarningOutlined } from '@ant-design/icons';
 
 // 菜单项配置
 export interface MenuItemConfig {
@@ -31,6 +21,7 @@ export const menuItems: MenuItemConfig[] = [
   { key: '/strategies', label: '交易系统', icon: ThunderboltOutlined },
   { key: '/books', label: '书籍学习', icon: BookOutlined },
   { key: '/ai', label: 'AI 助手', icon: RobotOutlined },
+  { key: '/error-logs', label: '错误日志', icon: WarningOutlined },
   { key: '/system', label: '系统设置', icon: SettingOutlined },
 ];
 

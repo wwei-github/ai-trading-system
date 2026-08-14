@@ -54,7 +54,6 @@ import type {
 } from '@/types';
 import { EXCHANGE_OPTIONS } from '@/types/accounts';
 import AIProviders from './AIProviders';
-import ErrorLogPanel from './ErrorLogPanel';
 
 const { RangePicker } = DatePicker;
 
@@ -1162,12 +1161,7 @@ const SystemPage = () => {
         label: '操作审计',
         children: <AuditTab />,
       },
-      {
-        key: 'error-logs',
-        label: '错误日志',
-        children: <ErrorLogPanel />,
-      },
-    ],
+      ],
     [],
   );
 

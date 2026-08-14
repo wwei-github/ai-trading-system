@@ -13,6 +13,7 @@ const StrategiesPage = lazy(() => import('@/pages/strategies'));
 const BooksPage = lazy(() => import('@/pages/books'));
 const AiPage = lazy(() => import('@/pages/ai'));
 const SystemPage = lazy(() => import('@/pages/system'));
+const ErrorLogsPage = lazy(() => import('@/pages/error-logs'));
 
 const SuspenseWrapper = ({ children }: { children: React.ReactNode }) => (
   <Suspense
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       { path: 'books', element: <SuspenseWrapper><BooksPage /></SuspenseWrapper> },
       { path: 'ai', element: <SuspenseWrapper><AiPage /></SuspenseWrapper> },
       { path: 'system', element: <SuspenseWrapper><SystemPage /></SuspenseWrapper> },
+      { path: 'error-logs', element: <SuspenseWrapper><ErrorLogsPage /></SuspenseWrapper> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },
