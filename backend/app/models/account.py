@@ -47,9 +47,14 @@ class ExchangeAccount(Base):
     # 是否为测试网
     is_testnet: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # 状态：active / disabled / expired
+    # 状态：active / disabled / abnormal / expired
     status: Mapped[str] = mapped_column(
         String(20), default="active", nullable=False
+    )
+
+    # 是否启用（同步任务和策略只读取 enabled=true 的账号）
+    is_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False
     )
 
     # 最后同步时间

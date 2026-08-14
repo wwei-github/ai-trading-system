@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.exceptions import NotFoundException
+from app.core.permissions import reject_viewer_write
 from app.models.user import User
 from app.schemas.common import ApiResponse
 from app.schemas.strategy import (
@@ -21,7 +22,11 @@ from app.schemas.strategy import (
 from app.services.strategy_service import StrategyService
 from app.utils.audit import write_audit_log
 
-router = APIRouter(prefix="/strategies", tags=["策略管理"])
+router = APIRouter(
+    prefix="/strategies",
+    tags=["策略管理"],
+    dependencies=[Depends(reject_viewer_write)],
+)
 
 
 @router.get("/health", summary="健康检查")

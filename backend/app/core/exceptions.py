@@ -77,6 +77,141 @@ class ServiceUnavailableException(AppException):
         )
 
 
+# ---------- Stage 1 业务错误码（对齐方案 §6.3） ----------
+
+
+class UnauthorizedException(AppException):
+    """未认证 / Token 无效（code=40001）。"""
+
+    def __init__(self, message: str = "未认证或 Token 无效", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40001,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+        )
+
+
+class TokenExpiredException(AppException):
+    """Token 过期，需 refresh（code=40002）。"""
+
+    def __init__(self, message: str = "Token 已过期，请刷新", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40002,
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+        )
+
+
+class AccountLockedException(AppException):
+    """账号锁定（code=40003，HTTP 423）。"""
+
+    def __init__(self, message: str = "账号已锁定", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40003,
+            status_code=423,
+            detail=detail,
+        )
+
+
+class ForbiddenException(AppException):
+    """无此角色权限（code=40101）。"""
+
+    def __init__(self, message: str = "无此操作权限", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40101,
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
+
+
+class ViewerWriteForbiddenException(AppException):
+    """Viewer 不允许写操作（code=40102）。"""
+
+    def __init__(self, message: str = "Viewer 角色不允许写操作", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40102,
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail,
+        )
+
+
+class EmailAlreadyRegisteredException(AppException):
+    """邮箱已注册（code=40201）。"""
+
+    def __init__(self, message: str = "邮箱已注册", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40201,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+
+
+class EmailNotVerifiedException(AppException):
+    """邮箱未验证（code=40202）。"""
+
+    def __init__(self, message: str = "邮箱未验证", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40202,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+
+
+class PasswordTooWeakException(AppException):
+    """密码复杂度不足（code=40203）。"""
+
+    def __init__(self, message: str = "密码复杂度不足", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40203,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+
+
+class TOTPCodeInvalidException(AppException):
+    """2FA 验证码错误（code=40301）。"""
+
+    def __init__(self, message: str = "2FA 验证码错误", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=40301,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+
+
+class RateLimitException(AppException):
+    """限流（code=42901，HTTP 429）。"""
+
+    def __init__(self, message: str = "请求过于频繁", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=42901,
+            status_code=429,
+            detail=detail,
+        )
+
+
+class RiskControlException(AppException):
+    """风控拦截（code=45001）。"""
+
+    def __init__(self, message: str = "风控拦截", detail: Optional[Any] = None):
+        super().__init__(
+            message=message,
+            code=45001,
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=detail,
+        )
+
+
 def _build_error_response(
     message: str, code: int, detail: Optional[Any] = None
 ) -> Dict[str, Any]:

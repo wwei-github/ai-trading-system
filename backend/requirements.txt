@@ -19,3 +19,13 @@ loguru==0.7.2
 python-dotenv==1.0.0
 httpx==0.26.0
 PyPDF2==3.0.0
+# Stage 1 安全基础
+python-jose[cryptography]>=3.3.0,<4.0
+passlib[bcrypt]>=1.7.4,<2.0
+pyotp>=2.9.0,<3.0
+qrcode[pil]>=7.4.2,<8.0
+slowapi>=0.1.9,<1.0
+deepdiff>=6.7.0,<7.0
+fastapi-mail>=1.4.0,<1.5
+Jinja2>=3.1.0,<4.0
+email-validator>=2.0.0,<3.0

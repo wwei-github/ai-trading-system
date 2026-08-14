@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.exceptions import NotFoundException
+from app.core.permissions import reject_viewer_write
 from app.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse
 from app.schemas.trade import (
@@ -21,7 +22,11 @@ from app.schemas.trade import (
 )
 from app.services.trade_service import TradeService
 
-router = APIRouter(prefix="/trades", tags=["交易记录"])
+router = APIRouter(
+    prefix="/trades",
+    tags=["交易记录"],
+    dependencies=[Depends(reject_viewer_write)],
+)
 
 
 @router.get("/health", summary="健康检查")

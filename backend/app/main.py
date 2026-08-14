@@ -22,7 +22,7 @@ from app.core.logging import setup_logging
 async def _initialize_storage() -> None:
     """启动时数据库初始化：
     - 所有模式：自动 CREATE ALL 建表（幂等，只建不存在的表）
-    - 所有模式：若默认用户不存在，自动创建
+    - 所有模式：若默认用户不存在，自动创建（含 JWT 鉴权所需字段）
     - PostgreSQL 场景下如需版本化迁移，可额外使用 alembic
     """
     from app.core.database import async_session_maker, engine
@@ -45,17 +45,20 @@ async def _initialize_storage() -> None:
         )
         user = result.scalar_one_or_none()
         if user is None:
+            from app.core.security import hash_password
             user = User(
                 id=default_uid,
                 email=settings.DEFAULT_USER_EMAIL,
+                hashed_password=hash_password("admin123"),
                 nickname=settings.DEFAULT_USER_NICKNAME,
                 is_active=True,
                 role="admin",
+                email_verified=True,
             )
             session.add(user)
             await session.commit()
             logger.info(
-                "默认用户已创建 | id={} email={}",
+                "默认用户已创建 | id={} email={} (初始密码: admin123)",
                 settings.DEFAULT_USER_ID,
                 settings.DEFAULT_USER_EMAIL,
             )
@@ -118,6 +121,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 限流状态码处理（slowapi 抛 429 → 统一错误格式）
+    from slowapi.errors import RateLimitExceeded
+    from app.core.exceptions import _build_error_response
+
+    @app.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+        return JSONResponse(
+            status_code=429,
+            content=_build_error_response("请求过于频繁，请稍后再试", 42901, {"retry_after": getattr(exc, "retry_after", None)}),
+        )
+
     # 请求日志中间件
     @app.middleware("http")
     async def log_requests(request: Request, call_next):
@@ -145,6 +159,10 @@ def create_app() -> FastAPI:
         )
 
         return response
+
+    # 审计日志中间件（写操作自动记录）
+    from app.middleware.audit_middleware import audit_middleware
+    app.middleware("http")(audit_middleware)
 
     # 注册异常处理器
     register_exception_handlers(app)

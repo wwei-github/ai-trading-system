@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
 from app.core.exceptions import NotFoundException
+from app.core.permissions import reject_viewer_write
 from app.models.user import User
 from app.schemas.book import (
     BookCreate,
@@ -25,7 +26,11 @@ from app.schemas.book import (
 from app.schemas.common import ApiResponse
 from app.services.book_service import BookService
 
-router = APIRouter(prefix="/books", tags=["书籍管理"])
+router = APIRouter(
+    prefix="/books",
+    tags=["书籍管理"],
+    dependencies=[Depends(reject_viewer_write)],
+)
 
 
 @router.get("/health", summary="健康检查")

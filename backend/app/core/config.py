@@ -46,6 +46,32 @@ class Settings(BaseSettings):
     # CORS 跨域配置
     CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:38000"]
 
+    # ---------- Stage 1: JWT / 鉴权 ----------
+    JWT_SECRET_KEY: str = ""  # 为空时回退到 SECRET_KEY
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    REMEMBER_ME_DAYS: int = 30
+    LOGIN_ATTEMPT_MAX: int = 5
+    LOGIN_LOCK_MINUTES: int = 30
+
+    # ---------- Stage 1: 邮件 SMTP ----------
+    EMAIL_SMTP_HOST: str = ""
+    EMAIL_SMTP_PORT: int = 465
+    EMAIL_SMTP_USER: str = ""
+    EMAIL_SMTP_PASSWORD: str = ""
+    EMAIL_USE_TLS: bool = True
+    EMAIL_FROM: str = "noreply@trading.local"
+    EMAIL_TEST_MODE: bool = True  # True=控制台打印不实际发送
+    APP_URL: str = "http://localhost:38000"  # 用于邮件链接
+
+    # ---------- Stage 1: 限流 ----------
+    RATE_LIMIT_ENABLED: bool = False
+    RATE_LIMIT_LOGIN_PER_MIN: int = 10
+    RATE_LIMIT_TRADE_PER_MIN: int = 30
+    RATE_LIMIT_AI_PER_MIN: int = 20
+    RATE_LIMIT_UPLOAD_PER_MIN: int = 3
+
     # 数据库连接池
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
@@ -55,7 +81,7 @@ class Settings(BaseSettings):
     # 默认用户 ID（无认证场景下，所有数据归属于此用户）
     # 启动时若不存在会自动创建
     DEFAULT_USER_ID: str = "00000000-0000-0000-0000-000000000001"
-    DEFAULT_USER_EMAIL: str = "admin@trading.local"
+    DEFAULT_USER_EMAIL: str = "admin@trading-system.dev"
     DEFAULT_USER_NICKNAME: str = "Trader"
 
     # 文件上传配置

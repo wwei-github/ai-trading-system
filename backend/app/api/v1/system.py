@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_pagination
 from app.core.config import settings
+from app.core.permissions import require_roles
 from app.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.schemas.system import (
@@ -100,7 +101,7 @@ async def update_user(
 # ---------- 系统配置 ----------
 
 
-@router.get("/config", summary="获取系统配置")
+@router.get("/config", summary="获取系统配置", dependencies=[Depends(require_roles("admin"))])
 async def get_config(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -110,7 +111,7 @@ async def get_config(
     return ApiResponse(data=service.get_system_config())
 
 
-@router.patch("/config", summary="更新系统配置")
+@router.patch("/config", summary="更新系统配置", dependencies=[Depends(require_roles("admin"))])
 async def update_config(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -147,7 +148,7 @@ async def update_notifications(
 # ---------- 审计日志 ----------
 
 
-@router.get("/audit-logs", summary="获取审计日志")
+@router.get("/audit-logs", summary="获取审计日志", dependencies=[Depends(require_roles("admin"))])
 async def list_audit_logs(
     pagination: PaginationParams = Depends(get_pagination),
     user_id: uuid.UUID = Query(None, description="按用户筛选"),

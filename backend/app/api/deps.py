@@ -2,48 +2,84 @@
 
 提供数据库会话、当前用户、分页参数等公共依赖。
 
-本项目当前不包含登录/认证流程，所有请求归属于一个默认用户
-（通过 DEFAULT_USER_ID 配置）。后续接入认证时，只需替换
-get_current_user 的实现即可。
+鉴权策略（Stage 1）：
+- 优先从 Authorization Bearer 解析 JWT → 加载用户
+- 若未提供 token 且配置允许无鉴权模式（AUTH_FALLBACK_DEFAULT_USER=true），
+  则回退到默认用户（便于本地无前端登录场景使用）
+- 否则抛 401
 """
 
 import uuid
 from typing import Optional
 
-from fastapi import Depends, Query
+from fastapi import Depends, Header, Query
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
+from app.core.exceptions import UnauthorizedException
+from app.core.security import decode_token
 from app.models.user import User
 from app.schemas.common import PaginationParams
+
+# 默认开启回退：兼容现有前端无登录场景；生产环境应设为 false
+AUTH_FALLBACK_DEFAULT_USER = True
+
+_bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
     db: AsyncSession = Depends(get_db),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> User:
     """获取当前用户。
 
-    本项目无认证流程，统一返回默认用户。若默认用户不存在则创建。
+    优先 JWT；未提供 token 且 AUTH_FALLBACK_DEFAULT_USER=true 时回退默认用户。
     """
-    user_id = uuid.UUID(settings.DEFAULT_USER_ID)
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
+    if credentials is not None and credentials.credentials:
+        try:
+            payload = decode_token(credentials.credentials)
+        except Exception:
+            raise UnauthorizedException("Token 无效或已过期")
+        if payload.get("type") != "access":
+            raise UnauthorizedException("Token 类型错误")
+        user_id_str = payload.get("sub")
+        if not user_id_str:
+            raise UnauthorizedException("Token 缺少 sub")
+        try:
+            user_id = uuid.UUID(user_id_str)
+        except ValueError:
+            raise UnauthorizedException("Token sub 非法")
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise UnauthorizedException("用户不存在")
+        if not user.is_active:
+            raise UnauthorizedException("用户已停用")
+        return user
 
-    if user is None:
-        user = User(
-            id=user_id,
-            email=settings.DEFAULT_USER_EMAIL,
-            hashed_password="",  # 无认证，留空
-            nickname=settings.DEFAULT_USER_NICKNAME,
-            role="admin",
-            is_active=True,
-        )
-        db.add(user)
-        await db.flush()
+    # 回退默认用户
+    if AUTH_FALLBACK_DEFAULT_USER:
+        user_id = uuid.UUID(settings.DEFAULT_USER_ID)
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            # 启动时未补齐时再补一次
+            user = User(
+                id=user_id,
+                email=settings.DEFAULT_USER_EMAIL,
+                hashed_password="",
+                nickname=settings.DEFAULT_USER_NICKNAME,
+                is_active=True,
+                role="admin",
+            )
+            db.add(user)
+            await db.flush()
+        return user
 
-    return user
+    raise UnauthorizedException("未提供认证信息")
 
 
 def get_pagination(

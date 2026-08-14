@@ -37,3 +37,6 @@ class AuditLog(Base):
 
     # 操作 IP 地址
     ip: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    # User-Agent
+    user_agent: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

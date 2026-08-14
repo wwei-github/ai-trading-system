@@ -82,6 +82,11 @@ class Trade(Base):
         String(100), nullable=True
     )
 
+    # 来源：manual / exchange_sync / import / paper / live
+    source: Mapped[str] = mapped_column(
+        String(20), default="manual", nullable=False
+    )
+
     # 成交时间
     executed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), index=True, nullable=False
