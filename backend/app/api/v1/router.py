@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     accounts,
     ai,
+    ai_providers,
     auth,
     books,
     coins,
@@ -34,6 +35,7 @@ api_router.include_router(coins.router)
 api_router.include_router(strategies.router)
 api_router.include_router(books.router)
 api_router.include_router(ai.router)
+api_router.include_router(ai_providers.router)
 api_router.include_router(system.router)
 
 __all__ = ["api_router"]

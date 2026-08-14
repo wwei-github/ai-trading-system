@@ -134,6 +134,31 @@ def generate_numeric_code(length: int = 6) -> str:
     return "".join(secrets.choice("0123456789") for _ in range(length))
 
 
+# ---------- API Key 加密/解密（Fernet） ----------
+
+
+def _derive_fernet_key() -> bytes:
+    """从 ENCRYPTION_KEY 派生 Fernet 密钥。"""
+    key = settings.ENCRYPTION_KEY.encode("utf-8")
+    return base64.urlsafe_b64encode(hashlib.sha256(key).digest())
+
+
+def encrypt_api_key(plain: str) -> str:
+    """加密 API Key，返回 base64 字符串。"""
+    from cryptography.fernet import Fernet
+
+    f = Fernet(_derive_fernet_key())
+    return f.encrypt(plain.encode("utf-8")).decode("utf-8")
+
+
+def decrypt_api_key(encrypted: str) -> str:
+    """解密 API Key。"""
+    from cryptography.fernet import Fernet
+
+    f = Fernet(_derive_fernet_key())
+    return f.decrypt(encrypted.encode("utf-8")).decode("utf-8")
+
+
 # ---------- 脱敏 ----------
 
 

@@ -26,7 +26,8 @@ from app.schemas.ai import (
     AIReportRequest,
     AISignalRequest,
 )
-from app.services.llm_provider import get_llm_provider
+from app.services.llm_provider import LLMProvider
+from app.services.provider_factory import ProviderFactory
 
 # 免责声明（自动追加到所有 AI 回复末尾）
 DISCLAIMER = (
@@ -63,7 +64,11 @@ class AIService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self.llm = get_llm_provider()
+        # 不再在构造函数中创建 Provider，改为每次调用时从 DB 动态加载
+
+    async def _get_llm(self) -> LLMProvider:
+        """从 DB 动态加载当前激活的 Provider。"""
+        return await ProviderFactory.get_active_provider(self.db)
 
     # ---------- 会话管理 ----------
 
@@ -221,8 +226,9 @@ class AIService:
         messages = self._build_messages(
             conversation, history, data.content, extra_context
         )
+        llm = await self._get_llm()
         try:
-            reply = await self.llm.chat(messages)
+            reply = await llm.chat(messages)
         except Exception as e:
             reply = f"AI 回复失败：{str(e)}"
 
@@ -283,8 +289,9 @@ class AIService:
             conversation, history, data.content, extra_context
         )
         full_reply = []
+        llm = await self._get_llm()
         try:
-            async for chunk in self.llm.chat_stream(messages):
+            async for chunk in llm.chat_stream(messages):
                 full_reply.append(chunk)
                 yield chunk
         except Exception as e:
@@ -378,7 +385,8 @@ class AIService:
                 ),
             },
         ]
-        reply = await self.llm.chat(messages)
+        llm = await self._get_llm()
+        reply = await llm.chat(messages)
 
         # 解析 JSON 响应
         try:
@@ -508,7 +516,8 @@ class AIService:
                 ),
             },
         ]
-        content = await self.llm.chat(messages)
+        llm = await self._get_llm()
+        content = await llm.chat(messages)
         content = self._append_disclaimer(content)
 
         # 生成 AI 摘要（前 200 字）
