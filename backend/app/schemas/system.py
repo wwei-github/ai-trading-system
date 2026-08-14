@@ -60,6 +60,41 @@ class SystemConfigUpdate(BaseModel):
     pass
 
 
+# ---------- 系统配置 CRUD（持久化到 system_configs 表） ----------
+
+
+class SystemConfigItemCreate(BaseModel):
+    """创建/更新系统配置项请求。"""
+
+    category: str = Field(
+        ..., max_length=50, description="配置分类：ai/exchanges/risk/notifications/storage"
+    )
+    key: str = Field(..., max_length=100, description="配置键（分类内唯一）")
+    value: Dict[str, Any] = Field(..., description="配置值（JSONB 结构）")
+    description: Optional[str] = Field(None, description="配置描述")
+
+
+class SystemConfigItemUpdate(BaseModel):
+    """更新系统配置项请求（仅 value 和 description 可更新）。"""
+
+    value: Dict[str, Any] = Field(..., description="配置值（JSONB 结构）")
+    description: Optional[str] = None
+
+
+class SystemConfigItemResponse(BaseModel):
+    """系统配置项响应。"""
+
+    id: uuid.UUID
+    category: str
+    key: str
+    value: Dict[str, Any]
+    description: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class NotificationSettings(BaseModel):
     """通知设置。"""
 
