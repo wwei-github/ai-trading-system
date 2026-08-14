@@ -69,7 +69,7 @@ class OpenAICompatibleProvider(LLMProvider):
     ) -> str:
         """同步对话。"""
         if not self.api_key:
-            return _mock_chat_response(messages)
+            raise ValueError("LLM_API_KEY 未配置，无法调用大语言模型")
 
         import httpx
 
@@ -97,11 +97,7 @@ class OpenAICompatibleProvider(LLMProvider):
     ) -> AsyncGenerator[str, None]:
         """流式对话（SSE）。"""
         if not self.api_key:
-            # 降级：模拟流式输出
-            text = _mock_chat_response(messages)
-            for word in text.split():
-                yield word + " "
-            return
+            raise ValueError("LLM_API_KEY 未配置，无法调用大语言模型")
 
         import httpx
 
@@ -160,21 +156,6 @@ class OpenAICompatibleProvider(LLMProvider):
             resp.raise_for_status()
             data = resp.json()
             return [item["embedding"] for item in data["data"]]
-
-
-def _mock_chat_response(messages: List[Dict[str, str]]) -> str:
-    """未配置 LLM_API_KEY 时的降级响应。"""
-    logger.warning("未配置 LLM_API_KEY，返回模拟响应")
-    user_msg = ""
-    for m in reversed(messages):
-        if m.get("role") == "user":
-            user_msg = m.get("content", "")[:100]
-            break
-    return (
-        "【模拟响应】当前未配置 LLM API Key，无法调用真实大语言模型。\n\n"
-        f"您发送的消息：{user_msg}\n\n"
-        "请在 .env 文件中配置 LLM_API_KEY、LLM_BASE_URL、LLM_MODEL 后使用。"
-    )
 
 
 # 单例

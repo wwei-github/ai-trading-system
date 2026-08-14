@@ -38,11 +38,6 @@ from app.schemas.strategy import (
 )
 from app.schemas.strategy_dsl import StrategyDSL
 from app.utils.backtest_engine import BacktestResult, compare_backtests
-from app.utils.strategy_templates import all_templates
-
-
-# ---------- 系统用户 ID（用于内置模板策略）
-SYSTEM_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 
 class StrategyService:
@@ -50,43 +45,6 @@ class StrategyService:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-
-    # ---------- 模板策略初始化 ----------
-
-    async def initialize_templates(self, admin_user_id: uuid.UUID) -> int:
-        """初始化内置模板策略（系统启动时调用）。
-
-        将 3 套模板策略写入 DB（若不存在）。
-        """
-        count = 0
-        for tpl in all_templates():
-            tpl_id = uuid.UUID(tpl["id"])
-            # 检查是否已存在
-            result = await self.db.execute(
-                select(Strategy).where(Strategy.id == tpl_id)
-            )
-            existing = result.scalar_one_or_none()
-            if existing:
-                continue
-
-            strategy = Strategy(
-                id=tpl_id,
-                user_id=admin_user_id,  # 关联到 Admin 用户
-                name=tpl["name"],
-                category=tpl["category"],
-                description=tpl["description"],
-                rules=tpl["rules"],
-                params=tpl["params"],
-                status="active",
-                is_template=True,
-            )
-            self.db.add(strategy)
-            count += 1
-
-        if count > 0:
-            await self.db.flush()
-            logger.info("已初始化 {} 套内置模板策略", count)
-        return count
 
     # ---------- 策略 CRUD ----------
 
