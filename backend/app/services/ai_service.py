@@ -1,26 +1,38 @@
-"""AI 助手服务。
+"""AI 助手服务（Stage 8，对齐 PRD §5.8）。
 
 处理 AI 会话管理、消息交互、交易信号生成、分析报告生成。
-支持 5 种会话模式：trade_analysis / strategy / book_qa / general / report。
+支持 5 种会话模式：trade_analysis / strategy / book_qa / risk_diagnosis / general。
+所有 AI 回复自动追加免责声明。
+信号和报告持久化到数据库。
 """
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.models.ai import AIConversation, AIMessage
-from app.models.book import KnowledgeChunk
+from app.models.report import Report
+from app.models.signal import Signal
 from app.schemas.ai import (
     AIConversationCreate,
+    AIConversationUpdate,
     AIMessageCreate,
+    AIMessageFeedback,
     AIReportRequest,
     AISignalRequest,
 )
 from app.services.llm_provider import get_llm_provider
+
+# 免责声明（自动追加到所有 AI 回复末尾）
+DISCLAIMER = (
+    "\n\n---\n⚠️ **免责声明**：以上内容由 AI 生成，仅供参考，不构成投资建议。"
+    "交易有风险，投资需谨慎。"
+)
 
 # 会话模式系统提示词
 SYSTEM_PROMPTS = {
@@ -38,11 +50,11 @@ SYSTEM_PROMPTS = {
         "回答应忠实于原文，并在合适位置标注引用来源。"
         "若知识片段不足以回答问题，请如实告知。"
     ),
-    "general": "你是一位友好的 AI 助手，请帮助用户解答各类问题。",
-    "report": (
-        "你是一位专业的交易报告撰写专家。请根据用户提供的数据，"
-        "生成结构清晰、内容详实的分析报告，包含关键指标、趋势分析、风险评估和建议。"
+    "risk_diagnosis": (
+        "你是一位风险管理专家。请根据用户的当前持仓、波动率和历史表现，"
+        "诊断潜在风险，评估风险敞口，给出风险控制建议。"
     ),
+    "general": "你是一位友好的 AI 助手，请帮助用户解答各类问题。",
 }
 
 
@@ -88,6 +100,19 @@ class AIService:
             .order_by(AIConversation.created_at.desc())
         )
         return list(result.scalars().all())
+
+    async def update_conversation(
+        self, conversation_id: uuid.UUID, data: AIConversationUpdate
+    ) -> Optional[AIConversation]:
+        """更新会话（重命名）。"""
+        conv = await self.get_conversation(conversation_id)
+        if conv is None:
+            return None
+        update_data = data.model_dump(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(conv, key, value)
+        await self.db.flush()
+        return conv
 
     async def delete_conversation(
         self, conversation_id: uuid.UUID
@@ -174,7 +199,7 @@ class AIService:
 
         history = await self.list_messages(conversation_id)
 
-        # book_qa 模式：检索知识库
+        # book_qa 模式：向量检索知识库
         extra_context = None
         if conversation.mode == "book_qa" and conversation.context:
             book_id = conversation.context.get("book_id")
@@ -200,6 +225,9 @@ class AIService:
             reply = await self.llm.chat(messages)
         except Exception as e:
             reply = f"AI 回复失败：{str(e)}"
+
+        # 追加免责声明
+        reply = self._append_disclaimer(reply)
 
         # 保存 AI 回复
         assistant_msg = AIMessage(
@@ -232,6 +260,15 @@ class AIService:
 
         history = await self.list_messages(conversation_id)
 
+        # book_qa 模式：向量检索知识库
+        extra_context = None
+        if conversation.mode == "book_qa" and conversation.context:
+            book_id = conversation.context.get("book_id")
+            if book_id:
+                extra_context = await self._retrieve_knowledge(
+                    uuid.UUID(book_id), data.content
+                )
+
         # 保存用户消息
         user_msg = AIMessage(
             conversation_id=conversation_id,
@@ -242,7 +279,9 @@ class AIService:
         await self.db.flush()
 
         # 流式调用 LLM
-        messages = self._build_messages(conversation, history, data.content)
+        messages = self._build_messages(
+            conversation, history, data.content, extra_context
+        )
         full_reply = []
         try:
             async for chunk in self.llm.chat_stream(messages):
@@ -251,6 +290,11 @@ class AIService:
         except Exception as e:
             full_reply.append(f"\n[错误] {str(e)}")
             yield f"\n[错误] {str(e)}"
+
+        # 追加免责声明
+        disclaimer = DISCLAIMER
+        full_reply.append(disclaimer)
+        yield disclaimer
 
         # 保存完整 AI 回复
         assistant_msg = AIMessage(
@@ -261,40 +305,60 @@ class AIService:
         self.db.add(assistant_msg)
         await self.db.flush()
 
-    # ---------- RAG 知识检索 ----------
+    # ---------- 消息反馈 ----------
+
+    async def set_message_feedback(
+        self, message_id: uuid.UUID, data: AIMessageFeedback
+    ) -> Optional[AIMessage]:
+        """设置消息反馈（点赞/点踩）。"""
+        result = await self.db.execute(
+            select(AIMessage).where(AIMessage.id == message_id)
+        )
+        msg = result.scalar_one_or_none()
+        if msg is None:
+            return None
+        if data.feedback not in ("none", "like", "dislike"):
+            raise BadRequestException(
+                message="无效的反馈类型",
+                detail={"feedback": data.feedback},
+            )
+        msg.feedback = data.feedback
+        await self.db.flush()
+        return msg
+
+    # ---------- RAG 知识检索（向量检索） ----------
 
     async def _retrieve_knowledge(
-        self, book_id: uuid.UUID, query: str, top_k: int = 3
+        self, book_id: uuid.UUID, query: str, top_k: int = 5
     ) -> Optional[str]:
-        """从书籍知识库检索相关片段（简化版：基于关键词匹配）。
+        """从书籍知识库向量检索相关片段。
 
-        生产环境应使用向量相似度检索（pgvector）。
+        使用 BookService 的余弦相似度向量检索（Stage 7.3），
+        未配置 LLM_API_KEY 时降级为关键词匹配。
         """
-        result = await self.db.execute(
-            select(KnowledgeChunk)
-            .where(KnowledgeChunk.book_id == book_id)
-            .limit(50)
+        from app.services.book_service import BookService
+
+        book_service = BookService(self.db)
+        scored_chunks = await book_service.retrieve_relevant_chunks(
+            book_id, query, top_k=top_k
         )
-        chunks = list(result.scalars().all())
-        if not chunks:
+        if not scored_chunks:
             return None
 
-        # 简化：按关键词匹配排序
-        query_words = set(query.lower().split())
+        parts = []
+        for i, (chunk, score) in enumerate(scored_chunks):
+            parts.append(
+                f"[片段 {i + 1}]（第 {chunk.chapter_order or '?'} 章，相似度 {score:.2f}）"
+                f"{chunk.content}"
+            )
+        return "\n---\n".join(parts)
 
-        def score(chunk: KnowledgeChunk) -> int:
-            content = chunk.content.lower()
-            return sum(1 for w in query_words if w in content)
-
-        ranked = sorted(chunks, key=score, reverse=True)[:top_k]
-        return "\n---\n".join(c.content for c in ranked if score(c) > 0) or None
-
-    # ---------- 交易信号生成 ----------
+    # ---------- 交易信号生成 + 持久化 ----------
 
     async def generate_signal(
         self, user_id: uuid.UUID, data: AISignalRequest
-    ) -> dict:
-        """生成交易信号。"""
+    ) -> Signal:
+        """生成交易信号并保存到数据库。"""
         messages = [
             {
                 "role": "system",
@@ -318,36 +382,109 @@ class AIService:
 
         # 解析 JSON 响应
         try:
-            # 尝试提取 JSON
             start = reply.find("{")
             end = reply.rfind("}") + 1
             if start >= 0 and end > start:
-                signal = json.loads(reply[start:end])
+                signal_data = json.loads(reply[start:end])
             else:
-                signal = {"side": "hold", "strength": 0.5, "reason": reply}
+                signal_data = {"side": "hold", "strength": 0.5, "reason": reply}
         except json.JSONDecodeError:
-            signal = {"side": "hold", "strength": 0.5, "reason": reply}
+            signal_data = {"side": "hold", "strength": 0.5, "reason": reply}
 
-        return {
-            "symbol": data.symbol,
-            "side": signal.get("side", "hold"),
-            "strength": float(signal.get("strength", 0.5)),
-            "reason": signal.get("reason", ""),
-            "strategy_id": data.strategy_id,
-        }
+        # 保存到数据库
+        signal = Signal(
+            user_id=user_id,
+            strategy_id=data.strategy_id,
+            symbol=data.symbol,
+            side=signal_data.get("side", "hold"),
+            strength=float(signal_data.get("strength", 0.5)),
+            reason=signal_data.get("reason", ""),
+            source="ai",
+            status="pending",
+            context=data.context,
+        )
+        self.db.add(signal)
+        await self.db.flush()
+        return signal
 
-    # ---------- 分析报告生成 ----------
+    async def list_signals(
+        self,
+        user_id: uuid.UUID,
+        symbol: Optional[str] = None,
+        status: Optional[str] = None,
+        source: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Signal]:
+        """获取用户的信号列表。"""
+        stmt = (
+            select(Signal)
+            .where(Signal.user_id == user_id)
+            .order_by(Signal.created_at.desc())
+        )
+        if symbol:
+            stmt = stmt.where(Signal.symbol == symbol)
+        if status:
+            stmt = stmt.where(Signal.status == status)
+        if source:
+            stmt = stmt.where(Signal.source == source)
+        stmt = stmt.limit(limit)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def mark_signal(
+        self,
+        user_id: uuid.UUID,
+        signal_id: uuid.UUID,
+        status: str,
+    ) -> Optional[Signal]:
+        """标记信号状态（采纳/忽略/已执行）。"""
+        if status not in ("adopted", "ignored", "executed", "pending"):
+            raise BadRequestException(
+                message="无效的信号状态",
+                detail={"status": status},
+            )
+        result = await self.db.execute(
+            select(Signal).where(
+                Signal.id == signal_id, Signal.user_id == user_id
+            )
+        )
+        signal = result.scalar_one_or_none()
+        if signal is None:
+            return None
+        signal.status = status
+        await self.db.flush()
+        return signal
+
+    # ---------- 分析报告生成 + 持久化 ----------
 
     async def generate_report(
         self, user_id: uuid.UUID, data: AIReportRequest
-    ) -> dict:
-        """生成分析报告。"""
-        report_prompts = {
+    ) -> Report:
+        """生成分析报告并保存到数据库。"""
+        report_titles = {
             "trade": "交易表现分析报告",
             "strategy": "策略评估报告",
             "portfolio": "投资组合报告",
         }
-        title = report_prompts.get(data.report_type, "分析报告")
+        title = report_titles.get(data.report_type, "分析报告")
+
+        # 解析时间范围
+        period_start = None
+        period_end = None
+        if data.start_date:
+            try:
+                period_start = datetime.fromisoformat(data.start_date).replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                pass
+        if data.end_date:
+            try:
+                period_end = datetime.fromisoformat(data.end_date).replace(
+                    tzinfo=timezone.utc
+                )
+            except ValueError:
+                pass
 
         messages = [
             {
@@ -355,7 +492,8 @@ class AIService:
                 "content": (
                     "你是一位专业的交易分析报告撰写专家。"
                     "请根据用户提供的信息，生成一份结构化的分析报告，"
-                    "包含：1. 概述 2. 关键指标分析 3. 趋势分析 4. 风险评估 5. 改进建议。"
+                    "包含以下 5 章：\n"
+                    "1. 概述\n2. 关键指标分析\n3. 趋势分析\n4. 风险评估\n5. 改进建议\n"
                     "使用 Markdown 格式输出。"
                 ),
             },
@@ -363,6 +501,7 @@ class AIService:
                 "role": "user",
                 "content": (
                     f"报告类型：{title}\n"
+                    f"报告周期：{data.period}\n"
                     f"时间范围：{data.start_date or '全部'} 至 {data.end_date or '至今'}\n"
                     f"附加上下文：{json.dumps(data.context, ensure_ascii=False) if data.context else '无'}\n"
                     "请生成详细的分析报告。"
@@ -370,10 +509,66 @@ class AIService:
             },
         ]
         content = await self.llm.chat(messages)
+        content = self._append_disclaimer(content)
 
-        return {
-            "report_type": data.report_type,
-            "title": title,
-            "content": content,
-            "generated_at": datetime.utcnow().isoformat(),
-        }
+        # 生成 AI 摘要（前 200 字）
+        summary = content[:200].replace("#", "").strip()
+        if len(content) > 200:
+            summary += "..."
+
+        # 保存到数据库
+        report = Report(
+            user_id=user_id,
+            report_type=data.report_type,
+            period=data.period,
+            title=title,
+            content=content,
+            summary=summary,
+            period_start=period_start,
+            period_end=period_end,
+            context=data.context,
+        )
+        self.db.add(report)
+        await self.db.flush()
+        return report
+
+    async def list_reports(
+        self,
+        user_id: uuid.UUID,
+        report_type: Optional[str] = None,
+        period: Optional[str] = None,
+        limit: int = 20,
+    ) -> List[Report]:
+        """获取用户的报告列表。"""
+        stmt = (
+            select(Report)
+            .where(Report.user_id == user_id)
+            .order_by(Report.created_at.desc())
+        )
+        if report_type:
+            stmt = stmt.where(Report.report_type == report_type)
+        if period:
+            stmt = stmt.where(Report.period == period)
+        stmt = stmt.limit(limit)
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_report(
+        self, user_id: uuid.UUID, report_id: uuid.UUID
+    ) -> Optional[Report]:
+        """获取报告详情。"""
+        result = await self.db.execute(
+            select(Report).where(
+                Report.id == report_id, Report.user_id == user_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    # ---------- 工具方法 ----------
+
+    @staticmethod
+    def _append_disclaimer(text: str) -> str:
+        """在 AI 回复末尾追加免责声明（若尚未追加）。"""
+        if DISCLAIMER.strip() in text:
+            return text
+        return text + DISCLAIMER

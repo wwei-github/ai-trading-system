@@ -20,8 +20,10 @@ from app.models.base import Base
 from app.models.book import Book, BookChapter, BookNote, KnowledgeChunk
 from app.models.live_trading import LiveOrder, LiveStrategyInstance
 from app.models.paper_trading import PaperAccount, PaperTrade
+from app.models.report import Report
 from app.models.signal import Signal
 from app.models.strategy import Strategy
+from app.models.system_config import SystemConfig
 from app.models.trade import Trade
 from app.models.trade_tag import TradeTag
 from app.models.user import User
@@ -49,6 +51,8 @@ __all__ = [
     "AIConversation",
     "AIMessage",
     "Signal",
+    "Report",
+    "SystemConfig",
     "AuditLog",
     "RefreshToken",
     "LoginDevice",

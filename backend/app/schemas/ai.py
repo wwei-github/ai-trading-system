@@ -1,4 +1,4 @@
-"""AI 助手 Schema。"""
+"""AI 助手 Schema（Stage 8，对齐 PRD §5.8）。"""
 
 import uuid
 from datetime import datetime
@@ -10,9 +10,15 @@ from pydantic import BaseModel, Field
 class AIConversationCreate(BaseModel):
     """创建 AI 会话请求。"""
 
-    mode: str = Field("general", description="会话模式：trade_analysis/strategy/book_qa/general/report")
+    mode: str = Field("general", description="会话模式：trade_analysis/strategy/book_qa/risk_diagnosis/general")
     title: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
+
+
+class AIConversationUpdate(BaseModel):
+    """更新 AI 会话请求（重命名）。"""
+
+    title: Optional[str] = Field(None, max_length=200)
 
 
 class AIConversationResponse(BaseModel):
@@ -44,9 +50,16 @@ class AIMessageResponse(BaseModel):
     role: str
     content: str
     tokens_used: Optional[int] = None
+    feedback: str = "none"
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AIMessageFeedback(BaseModel):
+    """消息反馈请求。"""
+
+    feedback: str = Field(..., description="反馈：like / dislike / none")
 
 
 class AIChatResponse(BaseModel):
@@ -54,6 +67,9 @@ class AIChatResponse(BaseModel):
 
     user_message: AIMessageResponse
     assistant_message: AIMessageResponse
+
+
+# ---------- 信号 ----------
 
 
 class AISignalRequest(BaseModel):
@@ -67,17 +83,34 @@ class AISignalRequest(BaseModel):
 class AISignalResponse(BaseModel):
     """AI 生成交易信号响应。"""
 
+    id: uuid.UUID
     symbol: str
     side: str  # buy / sell / hold
     strength: float  # 0.0 ~ 1.0
     reason: str
+    source: str = "ai"
+    status: str = "pending"
     strategy_id: Optional[uuid.UUID] = None
+    context: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SignalMarkRequest(BaseModel):
+    """信号标记请求。"""
+
+    status: str = Field(..., description="标记状态：adopted / ignored / executed")
+
+
+# ---------- 报告 ----------
 
 
 class AIReportRequest(BaseModel):
     """AI 生成分析报告请求。"""
 
     report_type: str = Field("trade", description="报告类型：trade/strategy/portfolio")
+    period: str = Field("custom", description="报告周期：daily/weekly/monthly/custom")
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
@@ -86,7 +119,14 @@ class AIReportRequest(BaseModel):
 class AIReportResponse(BaseModel):
     """AI 生成分析报告响应。"""
 
+    id: uuid.UUID
     report_type: str
+    period: str
     title: str
     content: str
-    generated_at: datetime
+    summary: Optional[str] = None
+    period_start: Optional[datetime] = None
+    period_end: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

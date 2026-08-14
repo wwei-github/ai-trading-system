@@ -57,3 +57,8 @@ class AIMessage(Base):
 
     # 使用的 token 数
     tokens_used: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # 用户反馈：none / like / dislike
+    feedback: Mapped[str] = mapped_column(
+        String(10), default="none", nullable=False
+    )
