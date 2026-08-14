@@ -25,8 +25,8 @@ const DEFAULT_CONFIG: Record<string, any> = {
     max_tokens: 2000,
   },
   ollama: {
-    base_url: 'http://ollama:11434',
-    model: 'qwen3.5:7b',
+    base_url: 'http://localhost:11434',
+    model: 'qwen3.5:9b',
     temperature: 0.7,
     max_tokens: 4096,
   },
@@ -160,7 +160,7 @@ const ProviderFormModal = ({ open, provider, onClose, onSuccess }: Props) => {
           <Input
             placeholder={
               type === 'ollama'
-                ? 'http://ollama:11434'
+                ? 'http://localhost:11434'
                 : 'https://api.openai.com/v1'
             }
           />

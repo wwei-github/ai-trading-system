@@ -188,7 +188,7 @@ class OllamaProvider(LLMProvider):
         self.base_url = config.get("base_url", "http://ollama:11434").rstrip("/")
         self.model = config.get("model", "qwen3.5:9b")
         self.temperature = config.get("temperature", 0.7)
-        self.max_tokens = config.get("max_tokens", 4096)
+        self.max_tokens = config.get("max_tokens", 8192)
         self.embedding_model = config.get("embedding_model", "nomic-embed-text")
 
     async def chat(
@@ -209,7 +209,7 @@ class OllamaProvider(LLMProvider):
                 "num_predict": max_tokens or self.max_tokens,
             },
         }
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(f"{self.base_url}/api/chat", json=payload)
             resp.raise_for_status()
             return resp.json()["message"]["content"]
@@ -232,7 +232,7 @@ class OllamaProvider(LLMProvider):
                 "num_predict": max_tokens or self.max_tokens,
             },
         }
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=300) as client:
             async with client.stream(
                 "POST", f"{self.base_url}/api/chat", json=payload
             ) as resp:
