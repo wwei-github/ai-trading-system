@@ -17,7 +17,7 @@ from app.models.auth import (
 from app.models.backtest import Backtest
 from app.models.backtest_trade import BacktestTrade
 from app.models.base import Base
-from app.models.book import Book, BookNote, KnowledgeChunk
+from app.models.book import Book, BookChapter, BookNote, KnowledgeChunk
 from app.models.live_trading import LiveOrder, LiveStrategyInstance
 from app.models.paper_trading import PaperAccount, PaperTrade
 from app.models.signal import Signal
@@ -43,6 +43,7 @@ __all__ = [
     "LiveStrategyInstance",
     "LiveOrder",
     "Book",
+    "BookChapter",
     "BookNote",
     "KnowledgeChunk",
     "AIConversation",
