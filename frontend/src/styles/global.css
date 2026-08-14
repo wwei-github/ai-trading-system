@@ -59,6 +59,21 @@ body {
 
 .header-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.ai-provider-switch {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #f5f5f5;
+  transition: background 0.2s;
+}
+
+.ai-provider-switch:hover {
+  background: #e8e8e8;
 }
 
 /* 内容区 */

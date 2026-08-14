@@ -125,6 +125,7 @@ class ProviderFactory:
             data["active_provider_id"] = provider_id
 
         await ProviderFactory._save_providers(db, data)
+        await db.commit()
 
         # 审计日志
         if user_id:
@@ -285,3 +286,5 @@ class ProviderFactory:
             logger.info("未配置 LLM_API_KEY，创建默认 Ollama Provider: {}", provider["name"])
 
         await ProviderFactory._save_providers(db, data)
+        await db.commit()
+        logger.info("AI Provider 配置已迁移到数据库")

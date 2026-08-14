@@ -1,13 +1,17 @@
 import { useMemo } from 'react';
-import { Layout, Menu } from 'antd';
+import { Layout, Menu, Select, message, Tag } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  RobotOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { useAppStore } from '@/store';
 import { menuItems, APP_TITLE } from '@/utils/constants';
+import { aiProviderApi } from '@/api/ai-provider';
+import type { ProviderListResponse } from '@/types';
 
 const { Header, Sider, Content } = Layout;
 
@@ -17,6 +21,23 @@ const MainLayout = () => {
   const toggleCollapsed = useAppStore((state) => state.toggleCollapsed);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // AI Provider 列表及当前激活
+  const { data: providerData } = useQuery<ProviderListResponse>({
+    queryKey: ['ai-providers'],
+    queryFn: () => aiProviderApi.getProviders(),
+    refetchInterval: 60000,
+  });
+
+  const activateMutation = useMutation({
+    mutationFn: (id: string) => aiProviderApi.activateProvider(id),
+    onSuccess: () => {
+      message.success('AI Provider 切换成功');
+    },
+  });
+
+  const providers = providerData?.providers || [];
+  const activeProvider = providers.find((p) => p.id === providerData?.active_provider_id);
 
   // 当前选中的菜单项（取路由路径第一段匹配）
   const selectedKey = useMemo(() => {
@@ -63,7 +84,32 @@ const MainLayout = () => {
             {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           </span>
           {/* 主题切换预留位 */}
-          <span className="header-right" />
+          <span className="header-right">
+            <span className="ai-provider-switch">
+              <RobotOutlined style={{ marginRight: 6, fontSize: 14 }} />
+              <Select
+                size="small"
+                value={activeProvider?.id || undefined}
+                loading={activateMutation.isPending}
+                onChange={(id) => activateMutation.mutate(id)}
+                placeholder="选择 AI Provider"
+                style={{ width: 160 }}
+                variant="borderless"
+                options={providers.map((p) => ({
+                  value: p.id,
+                  label: p.name,
+                }))}
+              />
+              {activeProvider && (
+                <Tag
+                  color={activeProvider?.provider_type === 'ollama' ? 'blue' : 'green'}
+                  style={{ marginLeft: 4, lineHeight: '18px', fontSize: 11 }}
+                >
+                  {activeProvider?.provider_type === 'ollama' ? '本地' : '云端'}
+                </Tag>
+              )}
+            </span>
+          </span>
         </Header>
         <Content className="content">
           <Outlet />

@@ -151,7 +151,10 @@ class AIMarketAnalyzer:
         session_maker = await self._get_session_maker()
         async with session_maker() as db:
             provider = await ProviderFactory.get_active_provider(db)
-            result = await provider.chat(prompt, temperature=0.1)
+            result = await provider.chat(
+                [{"role": "user", "content": prompt}],
+                temperature=0.1,
+            )
             return result
 
     def _parse_result(self, raw: str) -> Dict[str, Any]:
