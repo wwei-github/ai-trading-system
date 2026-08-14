@@ -13,10 +13,10 @@ import type {
 export const coinApi = {
   async getList(params: CoinListParams = {}): Promise<Coin[]> {
     const query = new URLSearchParams();
-    if (params.page) query.append('page', String(params.page));
-    if (params.page_size) query.append('page_size', String(params.page_size));
-    if (params.keyword) query.append('keyword', params.keyword);
-    if (params.favorite !== undefined) query.append('favorite', String(params.favorite));
+    if (params.limit) query.append('limit', String(params.limit));
+    if (params.search) query.append('search', params.search);
+    if (params.sort_by) query.append('sort_by', params.sort_by);
+    if (params.sort_order) query.append('sort_order', params.sort_order);
     const qs = query.toString();
     const res = await request.get<Coin[]>(`/coins${qs ? `?${qs}` : ''}`);
     return res.data;

@@ -61,11 +61,11 @@ const CoinsPage = () => {
     isLoading: listLoading,
     refetch: refetchList,
   } = useQuery({
-    queryKey: ['coins', 'list', { keyword: searchKeyword, favorite: favoriteOnly }],
+    queryKey: ['coins', 'list', { search: searchKeyword }],
     queryFn: () =>
       coinApi.getList({
-        keyword: searchKeyword || undefined,
-        favorite: favoriteOnly ? true : undefined,
+        search: searchKeyword || undefined,
+        limit: 100,
       }),
   });
 

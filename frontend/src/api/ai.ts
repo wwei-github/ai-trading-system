@@ -78,7 +78,7 @@ export const aiApi = {
       strategy_id: data.strategy_id,
       context: data.context,
     };
-    const res = await request.post<TradingSignal>('/ai/signal', payload);
+    const res = await request.post<TradingSignal>('/ai/signals/generate', payload);
     return res.data;
   },
 
@@ -90,7 +90,7 @@ export const aiApi = {
       end_date: params.end_date,
       context: params.context,
     };
-    const res = await request.post<AiReport>('/ai/report', payload);
+    const res = await request.post<AiReport>('/ai/reports/generate', payload);
     return res.data;
   },
 };

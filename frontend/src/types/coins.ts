@@ -1,5 +1,3 @@
-import type { PageParams } from './api';
-
 export interface Coin {
   id: string;
   symbol: string;
@@ -34,9 +32,11 @@ export interface IndicatorData {
   updated_at?: string;
 }
 
-export interface CoinListParams extends PageParams {
-  keyword?: string;
-  favorite?: boolean;
+export interface CoinListParams {
+  limit?: number;
+  search?: string;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
 }
 
 export type KlinePeriod = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w';

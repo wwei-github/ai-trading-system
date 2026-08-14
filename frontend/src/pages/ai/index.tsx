@@ -812,15 +812,13 @@ const AiPage = () => {
           initialValues={{ timeframe: '1h', strategy_type: 'trend_following' }}
         >
           <Form.Item
-            name="symbols"
+            name="symbol"
             label="交易对"
-            rules={[{ required: true, message: '请选择至少一个交易对' }]}
+            rules={[{ required: true, message: '请选择交易对' }]}
           >
             <Select
-              mode="multiple"
               placeholder="选择交易对"
               options={SYMBOL_OPTIONS}
-              maxTagCount={3}
               allowClear
             />
           </Form.Item>
