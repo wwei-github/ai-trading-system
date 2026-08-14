@@ -6,6 +6,882 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "注册",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Register Api V1 Auth Register Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/verify-email": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "邮箱验证",
+        "operationId": "verify_email_api_v1_auth_verify_email_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyEmailRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Verify Email Api V1 Auth Verify Email Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/resend-verification": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "重发邮箱验证码",
+        "operationId": "resend_verification_api_v1_auth_resend_verification_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendVerificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Resend Verification Api V1 Auth Resend Verification Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "登录",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Login Api V1 Auth Login Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "登出",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Logout Api V1 Auth Logout Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "刷新 Access Token",
+        "operationId": "refresh_api_v1_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Refresh Api V1 Auth Refresh Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/forgot-password/send": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "发送密码找回验证码",
+        "operationId": "forgot_password_send_api_v1_auth_forgot_password_send_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordSendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forgot Password Send Api V1 Auth Forgot Password Send Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/forgot-password/reset": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "重设密码",
+        "operationId": "forgot_password_reset_api_v1_auth_forgot_password_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Forgot Password Reset Api V1 Auth Forgot Password Reset Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "修改密码",
+        "operationId": "change_password_api_v1_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Change Password Api V1 Auth Change Password Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/setup": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "2FA 设置（返回 QR）",
+        "operationId": "totp_setup_api_v1_auth_2fa_setup_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Totp Setup Api V1 Auth 2Fa Setup Post"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/enable": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "确认开启 2FA",
+        "operationId": "totp_enable_api_v1_auth_2fa_enable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TOTPEnableConfirmRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Totp Enable Api V1 Auth 2Fa Enable Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/2fa/disable": {
+      "post": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "关闭 2FA",
+        "operationId": "totp_disable_api_v1_auth_2fa_disable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TOTPDisableRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Totp Disable Api V1 Auth 2Fa Disable Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/devices": {
+      "get": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "登录设备列表",
+        "operationId": "list_devices_api_v1_auth_devices_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Devices Api V1 Auth Devices Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/auth/devices/{device_id}": {
+      "delete": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "强制下线设备",
+        "operationId": "revoke_device_api_v1_auth_devices__device_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Device Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Revoke Device Api V1 Auth Devices  Device Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "鉴权"
+        ],
+        "summary": "当前用户信息",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Me Api V1 Auth Me Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/me": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "当前用户资料",
+        "operationId": "get_me_api_v1_users_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Get Me Api V1 Users Me Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "patch": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "更新本人资料",
+        "operationId": "update_me_api_v1_users_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Update Me Api V1 Users Me Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "用户列表（Admin）",
+        "operationId": "list_users_api_v1_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Users Api V1 Users Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}": {
+      "patch": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "Admin 更新用户",
+        "operationId": "admin_update_user_api_v1_users__user_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserAdminUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Admin Update User Api V1 Users  User Id  Patch"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/{user_id}/reset-password": {
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "Admin 重置密码",
+        "operationId": "admin_reset_password_api_v1_users__user_id__reset_password_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResetPasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Admin Reset Password Api V1 Users  User Id  Reset Password Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/accounts/health": {
       "get": {
         "tags": [
@@ -23,7 +899,37 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/accounts/exchanges/supported": {
+      "get": {
+        "tags": [
+          "交易所账号"
+        ],
+        "summary": "获取受支持的交易所列表",
+        "description": "获取系统受支持的交易所清单（含是否需要 passphrase）。\n\n前端在创建账号表单中可根据此接口动态渲染交易所选择器与 passphrase 字段。",
+        "operationId": "list_supported_exchanges_api_v1_accounts_exchanges_supported_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/accounts": {
@@ -43,7 +949,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -81,7 +992,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/accounts/{account_id}": {
@@ -92,6 +1008,11 @@
         "summary": "获取账号详情",
         "description": "获取交易所账号详情。",
         "operationId": "get_account_api_v1_accounts__account_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "account_id",
@@ -132,6 +1053,11 @@
         "summary": "更新账号信息",
         "description": "更新交易所账号信息。",
         "operationId": "update_account_api_v1_accounts__account_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "account_id",
@@ -180,8 +1106,13 @@
           "交易所账号"
         ],
         "summary": "删除账号",
-        "description": "删除交易所账号。",
+        "description": "删除交易所账号（含依赖检查）。",
         "operationId": "delete_account_api_v1_accounts__account_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "account_id",
@@ -216,14 +1147,76 @@
         }
       }
     },
+    "/api/v1/accounts/{account_id}/toggle": {
+      "patch": {
+        "tags": [
+          "交易所账号"
+        ],
+        "summary": "启用/停用账号",
+        "description": "启用或停用交易所账号。",
+        "operationId": "toggle_account_api_v1_accounts__account_id__toggle_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Account Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountToggleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/accounts/{account_id}/test": {
       "post": {
         "tags": [
           "交易所账号"
         ],
         "summary": "测试交易所连接",
-        "description": "测试交易所连接是否正常。",
+        "description": "测试交易所连接是否正常。\n\n返回: {success, exchange, latency_ms, permissions, message}",
         "operationId": "test_connection_api_v1_accounts__account_id__test_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "account_id",
@@ -266,6 +1259,11 @@
         "summary": "查询账号余额",
         "description": "查询交易所账号余额。",
         "operationId": "get_balance_api_v1_accounts__account_id__balance_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "account_id",
@@ -300,6 +1298,67 @@
         }
       }
     },
+    "/api/v1/accounts/{account_id}/snapshots": {
+      "get": {
+        "tags": [
+          "交易所账号"
+        ],
+        "summary": "获取资产快照历史",
+        "description": "获取账号资产快照历史（用于资产曲线图）。",
+        "operationId": "get_snapshots_api_v1_accounts__account_id__snapshots_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "account_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Account Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "description": "返回条数",
+              "default": 100,
+              "title": "Limit"
+            },
+            "description": "返回条数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/accounts/{account_id}/sync": {
       "post": {
         "tags": [
@@ -308,6 +1367,11 @@
         "summary": "触发订单/交易同步",
         "description": "触发指定账号的交易记录同步（异步任务）。",
         "operationId": "sync_account_api_v1_accounts__account_id__sync_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "account_id",
@@ -359,7 +1423,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/trades": {
@@ -368,8 +1437,13 @@
           "交易记录"
         ],
         "summary": "查询交易记录列表",
-        "description": "查询交易记录列表（分页 + 多条件筛选）。",
+        "description": "查询交易记录列表（分页 + 多条件筛选 + 标签 + 盈亏状态 + 全文搜索）。",
         "operationId": "list_trades_api_v1_trades_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "exchange",
@@ -408,6 +1482,44 @@
             "description": "交易对筛选"
           },
           {
+            "name": "account_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "账号筛选",
+              "title": "Account Id"
+            },
+            "description": "账号筛选"
+          },
+          {
+            "name": "strategy_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "策略筛选",
+              "title": "Strategy Id"
+            },
+            "description": "策略筛选"
+          },
+          {
             "name": "side",
             "in": "query",
             "required": false,
@@ -444,23 +1556,58 @@
             "description": "状态筛选"
           },
           {
-            "name": "strategy_id",
+            "name": "source",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "关联策略筛选",
-              "title": "Strategy Id"
+              "description": "来源筛选",
+              "title": "Source"
             },
-            "description": "关联策略筛选"
+            "description": "来源筛选"
+          },
+          {
+            "name": "pnl_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "盈亏状态：profit/loss/breakeven/unrealized",
+              "title": "Pnl Status"
+            },
+            "description": "盈亏状态：profit/loss/breakeven/unrealized"
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "全文搜索（symbol/note）",
+              "title": "Search"
+            },
+            "description": "全文搜索（symbol/note）"
           },
           {
             "name": "start_date",
@@ -526,8 +1673,75 @@
               "title": "Page Size"
             },
             "description": "每页条数"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "排序字段",
+              "default": "executed_at",
+              "title": "Sort By"
+            },
+            "description": "排序字段"
+          },
+          {
+            "name": "sort_order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "asc/desc",
+              "default": "desc",
+              "title": "Sort Order"
+            },
+            "description": "asc/desc"
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "交易记录"
+        ],
+        "summary": "手动创建交易记录",
+        "description": "手动创建交易记录（source 固定为 manual）。",
+        "operationId": "create_trade_api_v1_trades_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeCreate"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -556,8 +1770,13 @@
           "交易记录"
         ],
         "summary": "导出交易记录",
-        "description": "导出交易记录（CSV/JSON）。",
+        "description": "导出交易记录（CSV 流式 / JSON）。",
         "operationId": "export_trades_api_v1_trades_export_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "exchange",
@@ -589,6 +1808,40 @@
                 }
               ],
               "title": "Symbol"
+            }
+          },
+          {
+            "name": "account_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "name": "strategy_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Strategy Id"
             }
           },
           {
@@ -624,20 +1877,51 @@
             }
           },
           {
-            "name": "strategy_id",
+            "name": "source",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "type": "string",
-                  "format": "uuid"
+                  "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "Strategy Id"
+              "title": "Source"
+            }
+          },
+          {
+            "name": "pnl_status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pnl Status"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
             }
           },
           {
@@ -709,13 +1993,117 @@
         }
       }
     },
+    "/api/v1/trades/import/preview": {
+      "post": {
+        "tags": [
+          "交易记录"
+        ],
+        "summary": "导入预览 + 去重检测",
+        "description": "导入预览：校验每行 + 去重检测，不写入数据库。",
+        "operationId": "preview_import_api_v1_trades_import_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/trades/import/confirm": {
+      "post": {
+        "tags": [
+          "交易记录"
+        ],
+        "summary": "确认导入",
+        "description": "确认导入（实际写入数据库，source=import）。",
+        "operationId": "confirm_import_api_v1_trades_import_confirm_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skip_duplicates",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "是否跳过重复行",
+              "default": true,
+              "title": "Skip Duplicates"
+            },
+            "description": "是否跳过重复行"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeImportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/trades/import": {
       "post": {
         "tags": [
           "交易记录"
         ],
-        "summary": "批量导入交易记录",
-        "description": "批量导入交易记录。",
+        "summary": "批量导入交易记录（直接导入）",
+        "description": "批量导入交易记录（直接导入，跳过预览）。",
         "operationId": "import_trades_api_v1_trades_import_post",
         "requestBody": {
           "content": {
@@ -746,7 +2134,57 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/trades/recalc": {
+      "post": {
+        "tags": [
+          "交易记录"
+        ],
+        "summary": "盈亏重算",
+        "description": "重新计算盈亏（支持指定 trade_ids 或按区间/symbol 重算）。",
+        "operationId": "recalc_pnl_api_v1_trades_recalc_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeRecalcRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/trades/{trade_id}": {
@@ -757,6 +2195,111 @@
         "summary": "获取交易详情",
         "description": "获取单条交易记录详情。",
         "operationId": "get_trade_api_v1_trades__trade_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "trade_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Trade Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "交易记录"
+        ],
+        "summary": "更新交易记录",
+        "description": "更新交易记录（exchange_sync 来源仅允许更新 tags/note/strategy_id）。",
+        "operationId": "update_trade_api_v1_trades__trade_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "trade_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Trade Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "交易记录"
+        ],
+        "summary": "删除交易记录",
+        "description": "删除交易记录（exchange_sync 来源禁止删除）。",
+        "operationId": "delete_trade_api_v1_trades__trade_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "trade_id",
@@ -797,8 +2340,13 @@
           "交易记录"
         ],
         "summary": "更新交易标签/备注",
-        "description": "更新交易记录的标签和备注。",
+        "description": "更新交易记录的标签和备注（所有来源均允许）。",
         "operationId": "update_trade_tags_api_v1_trades__trade_id__tags_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "trade_id",
@@ -816,7 +2364,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/TradeTagUpdate"
+                "$ref": "#/components/schemas/app__schemas__trade__TradeTagUpdate"
               }
             }
           }
@@ -841,6 +2389,221 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/trade-tags": {
+      "get": {
+        "tags": [
+          "交易标签"
+        ],
+        "summary": "获取标签列表",
+        "description": "获取用户全部标签（按使用次数降序）。",
+        "operationId": "list_tags_api_v1_trade_tags_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "交易标签"
+        ],
+        "summary": "创建标签",
+        "description": "创建标签（user_id + name 唯一）。",
+        "operationId": "create_tag_api_v1_trade_tags_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeTagCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/trade-tags/{tag_id}": {
+      "patch": {
+        "tags": [
+          "交易标签"
+        ],
+        "summary": "更新标签",
+        "description": "更新标签名称或颜色。",
+        "operationId": "update_tag_api_v1_trade_tags__tag_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Tag Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__schemas__trade_tag__TradeTagUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "交易标签"
+        ],
+        "summary": "删除标签",
+        "description": "删除标签（同时从所有交易记录的 tags 数组中移除）。",
+        "operationId": "delete_tag_api_v1_trade_tags__tag_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "tag_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Tag Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/trade-tags/merge": {
+      "post": {
+        "tags": [
+          "交易标签"
+        ],
+        "summary": "合并标签",
+        "description": "合并标签：将 source_tags 合并到 target_tag。",
+        "operationId": "merge_tags_api_v1_trade_tags_merge_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeTagMergeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/statistics/health": {
@@ -871,6 +2634,11 @@
         "summary": "交易汇总指标",
         "description": "获取交易汇总指标（总笔数、成交额、手续费、胜率等）。",
         "operationId": "get_summary_api_v1_statistics_summary_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "start_date",
@@ -953,6 +2721,11 @@
         "summary": "盈亏按周期统计",
         "description": "盈亏按周期统计（折线图数据）。",
         "operationId": "get_pnl_api_v1_statistics_pnl_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "period",
@@ -1047,6 +2820,11 @@
         "summary": "币种维度统计",
         "description": "按币种维度统计（柱状图数据）。",
         "operationId": "get_coins_api_v1_statistics_coins_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "start_date",
@@ -1129,6 +2907,11 @@
         "summary": "资产趋势",
         "description": "资产趋势（面积图数据）。",
         "operationId": "get_asset_trend_api_v1_statistics_asset_trend_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "account_id",
@@ -1193,6 +2976,11 @@
         "summary": "交易所分布",
         "description": "按交易所分布统计（饼图数据）。",
         "operationId": "get_exchange_distribution_api_v1_statistics_exchange_distribution_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "start_date",
@@ -1275,6 +3063,11 @@
         "summary": "买卖方向分布",
         "description": "按买卖方向分布统计。",
         "operationId": "get_side_distribution_api_v1_statistics_side_distribution_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "start_date",
@@ -1357,6 +3150,11 @@
         "summary": "交易时间分布",
         "description": "按交易时间（小时）分布统计。",
         "operationId": "get_time_distribution_api_v1_statistics_time_distribution_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "start_date",
@@ -1448,7 +3246,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/statistics/monthly-report": {
@@ -1459,6 +3262,11 @@
         "summary": "月度报表",
         "description": "获取月度报表。",
         "operationId": "get_monthly_report_api_v1_statistics_monthly_report_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "year",
@@ -1529,6 +3337,11 @@
         "summary": "报表导出",
         "description": "导出统计报表为 CSV。",
         "operationId": "export_report_api_v1_statistics_export_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "start_date",
@@ -1631,6 +3444,11 @@
         "summary": "获取热门币种列表",
         "description": "获取热门币种列表（按 24h 成交额排序）。",
         "operationId": "list_top_coins_api_v1_coins_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "limit",
@@ -1677,6 +3495,11 @@
         "summary": "多币种对比",
         "description": "多币种对比分析。",
         "operationId": "compare_coins_api_v1_coins_compare_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "symbols",
@@ -1732,6 +3555,11 @@
         "summary": "获取币种基本信息",
         "description": "获取币种基本信息（含实时行情）。",
         "operationId": "get_coin_info_api_v1_coins__symbol__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "symbol",
@@ -1773,6 +3601,11 @@
         "summary": "获取实时行情",
         "description": "获取币种实时行情。",
         "operationId": "get_ticker_api_v1_coins__symbol__ticker_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "symbol",
@@ -1814,6 +3647,11 @@
         "summary": "获取 K 线数据",
         "description": "获取 K 线数据。",
         "operationId": "get_kline_api_v1_coins__symbol__kline_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "symbol",
@@ -1881,6 +3719,11 @@
         "summary": "获取技术指标",
         "description": "获取技术指标（RSI/MACD/MA/布林带等）。",
         "operationId": "get_indicators_api_v1_coins__symbol__indicators_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "symbol",
@@ -1943,7 +3786,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/strategies": {
@@ -1963,7 +3811,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -2001,7 +3854,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/strategies/{strategy_id}": {
@@ -2012,6 +3870,11 @@
         "summary": "获取策略详情",
         "description": "获取策略详情。",
         "operationId": "get_strategy_api_v1_strategies__strategy_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "strategy_id",
@@ -2052,6 +3915,11 @@
         "summary": "更新策略",
         "description": "更新策略信息。",
         "operationId": "update_strategy_api_v1_strategies__strategy_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "strategy_id",
@@ -2102,6 +3970,11 @@
         "summary": "删除策略",
         "description": "删除策略。",
         "operationId": "delete_strategy_api_v1_strategies__strategy_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "strategy_id",
@@ -2144,6 +4017,11 @@
         "summary": "触发策略回测",
         "description": "触发策略回测（异步任务）。",
         "operationId": "create_backtest_api_v1_strategies__strategy_id__backtest_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "strategy_id",
@@ -2196,6 +4074,11 @@
         "summary": "获取回测历史",
         "description": "获取策略的回测历史。",
         "operationId": "list_backtests_api_v1_strategies__strategy_id__backtests_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "strategy_id",
@@ -2238,6 +4121,11 @@
         "summary": "模拟交易",
         "description": "模拟交易（不实际下单）。",
         "operationId": "paper_trade_api_v1_strategies__strategy_id__paper_trade_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "strategy_id",
@@ -2290,6 +4178,11 @@
         "summary": "实盘交易",
         "description": "实盘交易（需二次确认）。",
         "operationId": "live_trade_api_v1_strategies__strategy_id__live_trade_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "strategy_id",
@@ -2351,7 +4244,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/books": {
@@ -2371,7 +4269,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -2409,7 +4312,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/books/upload": {
@@ -2449,7 +4357,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/books/{book_id}": {
@@ -2460,6 +4373,11 @@
         "summary": "获取书籍详情",
         "description": "获取书籍详情。",
         "operationId": "get_book_api_v1_books__book_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2500,6 +4418,11 @@
         "summary": "更新书籍信息",
         "description": "更新书籍信息。",
         "operationId": "update_book_api_v1_books__book_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2550,6 +4473,11 @@
         "summary": "删除书籍",
         "description": "删除书籍（同时删除关联的笔记和知识块）。",
         "operationId": "delete_book_api_v1_books__book_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2592,6 +4520,11 @@
         "summary": "更新阅读进度",
         "description": "更新阅读进度（0.0 ~ 1.0）。",
         "operationId": "update_progress_api_v1_books__book_id__progress_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2644,6 +4577,11 @@
         "summary": "触发内容解析",
         "description": "触发书籍内容解析+知识提取（异步任务）。\n\n返回任务 ID，可通过 Celery 结果后端查询任务状态。",
         "operationId": "parse_book_api_v1_books__book_id__parse_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2686,6 +4624,11 @@
         "summary": "书籍 RAG 问答",
         "description": "基于书籍内容的 RAG 问答。\n\n检索书中相关知识片段，结合 LLM 生成回答。",
         "operationId": "book_qa_api_v1_books__book_id__qa_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2738,6 +4681,11 @@
         "summary": "获取笔记列表",
         "description": "获取书籍的笔记列表。",
         "operationId": "list_notes_api_v1_books__book_id__notes_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2778,6 +4726,11 @@
         "summary": "创建笔记",
         "description": "创建书籍笔记。",
         "operationId": "create_note_api_v1_books__book_id__notes_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "book_id",
@@ -2859,7 +4812,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -2897,7 +4855,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/ai/conversations/{conversation_id}": {
@@ -2908,6 +4871,11 @@
         "summary": "获取会话详情",
         "description": "获取 AI 会话详情。",
         "operationId": "get_conversation_api_v1_ai_conversations__conversation_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "conversation_id",
@@ -2948,6 +4916,11 @@
         "summary": "删除会话",
         "description": "删除 AI 会话。",
         "operationId": "delete_conversation_api_v1_ai_conversations__conversation_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "conversation_id",
@@ -2990,6 +4963,11 @@
         "summary": "获取消息列表",
         "description": "获取会话的消息列表。",
         "operationId": "list_messages_api_v1_ai_conversations__conversation_id__messages_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "conversation_id",
@@ -3030,6 +5008,11 @@
         "summary": "发送消息",
         "description": "发送消息并获取 AI 回复。",
         "operationId": "send_message_api_v1_ai_conversations__conversation_id__messages_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "conversation_id",
@@ -3082,6 +5065,11 @@
         "summary": "流式对话",
         "description": "流式对话（SSE）。",
         "operationId": "stream_message_api_v1_ai_conversations__conversation_id__stream_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "conversation_id",
@@ -3163,7 +5151,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/ai/report": {
@@ -3203,7 +5196,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/system/health": {
@@ -3254,6 +5252,11 @@
         "summary": "获取用户列表",
         "description": "获取用户列表（分页）。",
         "operationId": "list_users_api_v1_system_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "page",
@@ -3311,6 +5314,11 @@
         "summary": "创建用户",
         "description": "创建用户。",
         "operationId": "create_user_api_v1_system_users_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -3351,6 +5359,11 @@
         "summary": "更新用户",
         "description": "更新用户信息。",
         "operationId": "update_user_api_v1_system_users__user_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "user_id",
@@ -3412,7 +5425,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -3430,7 +5448,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/system/notifications": {
@@ -3450,7 +5473,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       },
       "patch": {
         "tags": [
@@ -3488,7 +5516,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/system/audit-logs": {
@@ -3499,6 +5532,11 @@
         "summary": "获取审计日志",
         "description": "获取审计日志列表（分页 + 筛选）。",
         "operationId": "list_audit_logs_api_v1_system_audit_logs_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "user_id",
@@ -3643,6 +5681,7 @@
           "context": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3666,6 +5705,7 @@
           "context": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3715,6 +5755,7 @@
           "context": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3750,6 +5791,7 @@
           "context": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3765,6 +5807,36 @@
         ],
         "title": "AISignalRequest",
         "description": "AI 生成交易信号请求。"
+      },
+      "AccountToggleRequest": {
+        "properties": {
+          "is_enabled": {
+            "type": "boolean",
+            "title": "Is Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_enabled"
+        ],
+        "title": "AccountToggleRequest",
+        "description": "账号启停请求。"
+      },
+      "AdminResetPasswordRequest": {
+        "properties": {
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_password"
+        ],
+        "title": "AdminResetPasswordRequest",
+        "description": "Admin 重置用户密码（直接设置新密码，要求首次登录修改）。"
       },
       "BacktestCreate": {
         "properties": {
@@ -3798,7 +5870,8 @@
                 "type": "number"
               },
               {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
               }
             ],
             "title": "Initial Capital",
@@ -3807,6 +5880,7 @@
           "params": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3942,6 +6016,7 @@
           "metadata": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -3978,6 +6053,7 @@
           "highlight_range": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4102,6 +6178,7 @@
           "metadata": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4115,25 +6192,50 @@
         "title": "BookUpdate",
         "description": "更新书籍请求。"
       },
+      "ChangePasswordRequest": {
+        "properties": {
+          "old_password": {
+            "type": "string",
+            "title": "Old Password"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "old_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest",
+        "description": "修改密码（已登录）。"
+      },
       "ExchangeAccountCreate": {
         "properties": {
           "exchange": {
             "type": "string",
             "title": "Exchange",
-            "description": "交易所名称"
+            "description": "交易所名称（binance/okx/bybit/huobi/gate/coinbase）"
           },
           "label": {
             "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
             "title": "Label",
             "description": "账号标签"
           },
           "api_key": {
             "type": "string",
+            "minLength": 1,
             "title": "Api Key",
             "description": "API Key（明文，传输后加密存储）"
           },
           "api_secret": {
             "type": "string",
+            "minLength": 1,
             "title": "Api Secret",
             "description": "API Secret（明文）"
           },
@@ -4147,7 +6249,7 @@
               }
             ],
             "title": "Passphrase",
-            "description": "口令（OKX 等）"
+            "description": "口令（OKX/Coinbase 必填）"
           },
           "permissions": {
             "anyOf": [
@@ -4186,13 +6288,53 @@
           "label": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
               },
               {
                 "type": "null"
               }
             ],
             "title": "Label"
+          },
+          "api_key": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key",
+            "description": "新 API Key（明文）"
+          },
+          "api_secret": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Secret",
+            "description": "新 API Secret（明文）"
+          },
+          "passphrase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passphrase",
+            "description": "新口令（明文）"
           },
           "permissions": {
             "anyOf": [
@@ -4229,11 +6371,66 @@
               }
             ],
             "title": "Status"
+          },
+          "is_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Enabled"
           }
         },
         "type": "object",
         "title": "ExchangeAccountUpdate",
-        "description": "更新账号请求。"
+        "description": "更新账号请求。\n\n所有字段可选；如更新 api_key/api_secret/passphrase 会重新加密存储。"
+      },
+      "ForgotPasswordResetRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 4,
+            "title": "Code"
+          },
+          "new_password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "New Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "code",
+          "new_password"
+        ],
+        "title": "ForgotPasswordResetRequest",
+        "description": "重设密码。"
+      },
+      "ForgotPasswordSendRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "ForgotPasswordSendRequest",
+        "description": "发送密码找回验证码。"
       },
       "HTTPValidationError": {
         "properties": {
@@ -4299,6 +6496,58 @@
         ],
         "title": "LiveTradeRequest",
         "description": "实盘交易请求（需二次确认）。"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "remember_me": {
+            "type": "boolean",
+            "title": "Remember Me",
+            "default": false
+          },
+          "totp_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 6,
+                "minLength": 6
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Totp Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "登录请求。"
+      },
+      "LogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "LogoutRequest",
+        "description": "登出请求。"
       },
       "NotificationSettings": {
         "properties": {
@@ -4367,6 +6616,70 @@
         "title": "PaperTradeRequest",
         "description": "模拟交易请求。"
       },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest",
+        "description": "刷新 token 请求。"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password"
+          },
+          "nickname": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Nickname"
+          },
+          "risk_agreed": {
+            "type": "boolean",
+            "title": "Risk Agreed",
+            "description": "必须勾选风险提示同意"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "nickname",
+          "risk_agreed"
+        ],
+        "title": "RegisterRequest",
+        "description": "注册请求。"
+      },
+      "ResendVerificationRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "title": "ResendVerificationRequest",
+        "description": "重发邮箱验证码。"
+      },
       "StrategyCreate": {
         "properties": {
           "name": {
@@ -4393,6 +6706,7 @@
           "rules": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4404,6 +6718,7 @@
           "params": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4460,6 +6775,7 @@
           "rules": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4471,6 +6787,7 @@
           "params": {
             "anyOf": [
               {
+                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -4494,6 +6811,232 @@
         "type": "object",
         "title": "StrategyUpdate",
         "description": "更新策略请求。"
+      },
+      "TOTPDisableRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "TOTPDisableRequest",
+        "description": "关闭 2FA。"
+      },
+      "TOTPEnableConfirmRequest": {
+        "properties": {
+          "secret": {
+            "type": "string",
+            "title": "Secret"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 6,
+            "minLength": 6,
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "secret",
+          "code"
+        ],
+        "title": "TOTPEnableConfirmRequest",
+        "description": "确认开启 2FA：用户扫码后输入验证码。"
+      },
+      "TradeCreate": {
+        "properties": {
+          "exchange": {
+            "type": "string",
+            "maxLength": 50,
+            "title": "Exchange",
+            "description": "交易所名称"
+          },
+          "symbol": {
+            "type": "string",
+            "maxLength": 30,
+            "title": "Symbol",
+            "description": "交易对，如 BTC/USDT"
+          },
+          "market_type": {
+            "type": "string",
+            "title": "Market Type",
+            "description": "市场类型：spot/futures/margin",
+            "default": "spot"
+          },
+          "side": {
+            "type": "string",
+            "title": "Side",
+            "description": "方向：buy/sell"
+          },
+          "order_type": {
+            "type": "string",
+            "title": "Order Type",
+            "description": "订单类型",
+            "default": "market"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Price",
+            "description": "成交价格"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              }
+            ],
+            "title": "Quantity",
+            "description": "成交数量"
+          },
+          "leverage": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 125.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leverage",
+            "description": "杠杆倍数（合约）"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee",
+            "description": "手续费"
+          },
+          "fee_currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Currency",
+            "description": "手续费币种"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "订单状态",
+            "default": "filled"
+          },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Id",
+            "description": "关联策略 ID"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags",
+            "description": "标签列表"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "备注"
+          },
+          "exchange_order_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange Order Id",
+            "description": "交易所订单 ID"
+          },
+          "executed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Executed At",
+            "description": "成交时间"
+          },
+          "account_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Account Id",
+            "description": "所属交易所账号 ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "exchange",
+          "symbol",
+          "side",
+          "price",
+          "quantity",
+          "executed_at",
+          "account_id"
+        ],
+        "title": "TradeCreate",
+        "description": "手动创建交易记录。"
       },
       "TradeImportItem": {
         "properties": {
@@ -4525,7 +7068,8 @@
                 "type": "number"
               },
               {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
               }
             ],
             "title": "Price"
@@ -4536,7 +7080,8 @@
                 "type": "number"
               },
               {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
               }
             ],
             "title": "Quantity"
@@ -4558,7 +7103,8 @@
                 "type": "number"
               },
               {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
               },
               {
                 "type": "null"
@@ -4671,16 +7217,49 @@
         "title": "TradeImportRequest",
         "description": "批量导入交易记录请求。"
       },
-      "TradeTagUpdate": {
+      "TradeRecalcRequest": {
         "properties": {
-          "tags": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Tags"
+          "trade_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trade Ids",
+            "description": "指定 trade ID 列表；为空则按 period 重算全部"
           },
-          "note": {
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "symbol": {
             "anyOf": [
               {
                 "type": "string"
@@ -4689,12 +7268,307 @@
                 "type": "null"
               }
             ],
-            "title": "Note"
+            "title": "Symbol"
           }
         },
         "type": "object",
-        "title": "TradeTagUpdate",
-        "description": "交易标签更新。"
+        "title": "TradeRecalcRequest",
+        "description": "盈亏重算请求。"
+      },
+      "TradeTagCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Name",
+            "description": "标签名"
+          },
+          "color": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Color",
+            "description": "颜色（HEX）",
+            "default": "#1890ff"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "TradeTagCreate",
+        "description": "创建标签。"
+      },
+      "TradeTagMergeRequest": {
+        "properties": {
+          "source_tag_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Source Tag Ids",
+            "description": "待合并的源标签 ID 列表"
+          },
+          "target_tag_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Target Tag Id",
+            "description": "合并目标标签 ID"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_tag_ids",
+          "target_tag_id"
+        ],
+        "title": "TradeTagMergeRequest",
+        "description": "标签合并请求。\n\n将 source_tags 中的所有标签合并到 target_tag，\n源标签会被删除，交易记录中的标签引用会被替换。"
+      },
+      "TradeUpdate": {
+        "properties": {
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "strategy_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Id"
+          },
+          "exchange": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exchange"
+          },
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "market_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Type"
+          },
+          "side": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Side"
+          },
+          "order_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Type"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          },
+          "quantity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quantity"
+          },
+          "leverage": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leverage"
+          },
+          "fee": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee"
+          },
+          "fee_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Currency"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "executed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executed At"
+          }
+        },
+        "type": "object",
+        "title": "TradeUpdate",
+        "description": "更新交易记录。\n\n来源为 exchange_sync 的交易仅允许更新 tags / note（只读保护）。"
+      },
+      "UserAdminUpdateRequest": {
+        "properties": {
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(admin|trader|viewer)$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "is_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Active"
+          },
+          "email_verified": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Verified"
+          }
+        },
+        "type": "object",
+        "title": "UserAdminUpdateRequest",
+        "description": "Admin 更新用户。"
       },
       "UserCreate": {
         "properties": {
@@ -4780,6 +7654,38 @@
         "title": "UserUpdate",
         "description": "更新用户请求。"
       },
+      "UserUpdateRequest": {
+        "properties": {
+          "nickname": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nickname"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "type": "object",
+        "title": "UserUpdateRequest",
+        "description": "用户资料更新（本人）。"
+      },
       "ValidationError": {
         "properties": {
           "loc": {
@@ -4812,6 +7718,93 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VerifyEmailRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 4,
+            "title": "Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "VerifyEmailRequest",
+        "description": "邮箱验证请求。"
+      },
+      "app__schemas__trade__TradeTagUpdate": {
+        "properties": {
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "title": "TradeTagUpdate",
+        "description": "交易标签/备注更新（exchange_sync 来源也允许）。"
+      },
+      "app__schemas__trade_tag__TradeTagUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          }
+        },
+        "type": "object",
+        "title": "TradeTagUpdate",
+        "description": "更新标签。"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
       }
     }
   }

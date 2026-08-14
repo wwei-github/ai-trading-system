@@ -19,6 +19,7 @@ from app.models.book import Book, BookNote, KnowledgeChunk
 from app.models.signal import Signal
 from app.models.strategy import Strategy
 from app.models.trade import Trade
+from app.models.trade_tag import TradeTag
 from app.models.user import User
 
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "User",
     "ExchangeAccount",
     "Trade",
+    "TradeTag",
     "AssetSnapshot",
     "Strategy",
     "Backtest",

@@ -15,7 +15,8 @@ from app.models.base import Base
 class Trade(Base):
     """交易记录表。
 
-    存储从交易所同步的交易历史。
+    存储从交易所同步或手动录入的交易历史。
+    盈亏字段（pnl / pnl_ratio / matched_buy_id）由盈亏引擎写入。
     """
 
     __tablename__ = "trades"
@@ -86,6 +87,24 @@ class Trade(Base):
     source: Mapped[str] = mapped_column(
         String(20), default="manual", nullable=False
     )
+
+    # ---------- 盈亏计算字段（由盈亏引擎写入） ----------
+
+    # 已实现盈亏（卖出 trade 才有值；买入为 None）
+    pnl: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 8), nullable=True)
+
+    # 盈亏比（pnl / 开仓成本）
+    pnl_ratio: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(10, 4), nullable=True
+    )
+
+    # 配对的买入 trade ID（现货 FIFO 配对；合约平仓对应的开仓 trade ID）
+    matched_trade_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+
+    # 持仓时长（秒，平仓时计算）
+    holding_seconds: Mapped[Optional[int]] = mapped_column(nullable=True)
 
     # 成交时间
     executed_at: Mapped[datetime] = mapped_column(

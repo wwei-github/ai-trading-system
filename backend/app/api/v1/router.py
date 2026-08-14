@@ -14,6 +14,7 @@ from app.api.v1 import (
     statistics,
     strategies,
     system,
+    trade_tags,
     trades,
     users,
 )
@@ -27,6 +28,7 @@ api_router.include_router(users.router)
 # 业务模块路由
 api_router.include_router(accounts.router)
 api_router.include_router(trades.router)
+api_router.include_router(trade_tags.router)
 api_router.include_router(statistics.router)
 api_router.include_router(coins.router)
 api_router.include_router(strategies.router)
