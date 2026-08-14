@@ -14,7 +14,7 @@
 | 01 | [01-接口总览.md](./01-接口总览.md) | 模块索引、JWT 鉴权、RBAC 三角色、限流、统一响应、分页、错误码表、审计日志、时区与货币约定 |
 | 02 | [02-accounts.md](./02-accounts.md) | 交易所账号：CRUD / 启停 / 连接测试 / 实时余额 / 资产快照 / 支持交易所列表 / 异步同步 |
 | 03 | [03-trades.md](./03-trades.md) | 交易记录：多维筛选 + 标签 @> / 全文搜索 / 盈亏重算 / 导入预览确认 / CSV+JSON 流式导出 / 来源只读保护 |
-| 04 | [04-statistics.md](./04-statistics.md) | 统计分析接口（待补充） |
+| 04 | [04-statistics.md](./04-statistics.md) | 统计分析：14 项核心指标 + 9 类图表 + 5 章报表 + 团队视角（Admin）+ Redis 缓存 + 兼容旧端点 |
 | 05 | [05-coins.md](./05-coins.md) | 币种行情接口（待补充） |
 | 06 | [06-strategies.md](./06-strategies.md) | 策略管理接口（待补充） |
 | 07 | [07-books.md](./07-books.md) | 书籍管理接口（待补充） |
