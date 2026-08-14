@@ -68,6 +68,12 @@ class CCXTClient:
         if self.passphrase:
             config["password"] = self.passphrase
 
+        # 代理配置：CCXT 支持 httpsProxy / httpProxy / socksProxy
+        from app.core.config import settings
+
+        if settings.EXCHANGE_PROXY:
+            config["httpsProxy"] = settings.EXCHANGE_PROXY
+
         self._client = exchange_class(config)
 
         # 测试网配置

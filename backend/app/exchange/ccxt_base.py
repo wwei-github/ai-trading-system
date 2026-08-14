@@ -41,6 +41,8 @@ class CCXTBaseAdapter(BaseExchangeAdapter):
 
     def _build_config(self) -> Dict[str, Any]:
         """构建 ccxt 配置字典。子类可覆盖以定制。"""
+        from app.core.config import settings
+
         config: Dict[str, Any] = {
             "apiKey": self.api_key,
             "secret": self.api_secret,
@@ -49,6 +51,9 @@ class CCXTBaseAdapter(BaseExchangeAdapter):
         }
         if self.requires_passphrase and self.passphrase:
             config["password"] = self.passphrase
+        # 代理配置：CCXT 支持 httpsProxy / httpProxy / socksProxy
+        if settings.EXCHANGE_PROXY:
+            config["httpsProxy"] = settings.EXCHANGE_PROXY
         return config
 
     def _apply_testnet(self, client: Any) -> None:

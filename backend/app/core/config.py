@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     EMBEDDING_DIMENSION: int = 1536
 
+    # ---------- Stage 9: 交易所代理 ----------
+    # 交易所 API 请求代理地址（大陆需配置才能访问 Binance 等境外交易所）
+    # 格式: http://127.0.0.1:7890 或 https://user:pass@proxy:port
+    EXCHANGE_PROXY: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
