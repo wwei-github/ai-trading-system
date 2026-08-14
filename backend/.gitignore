@@ -35,8 +35,5 @@ logs/
 *.swo
 *~
 
-# 上传的文件
-uploads/
-
 # 系统文件
 .DS_Store
