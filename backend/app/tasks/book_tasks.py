@@ -61,7 +61,7 @@ def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
     chapters: List[Dict[str, Any]] = []
     if toc:
         for idx, (level, title, page_num) in enumerate(toc):
-            page_start = page_num - 1  fitz 页码从 1 开始
+            page_start = page_num - 1  # fitz 页码从 1 开始
             page_end = (toc[idx + 1][2] - 1) if idx + 1 < len(toc) else total_pages
             page_end = min(page_end, total_pages)
             content = "\n\n".join(page_texts[page_start:page_end])

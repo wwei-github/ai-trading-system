@@ -1,12 +1,13 @@
-"""书籍接口。
+"""书籍接口（Stage 7，对齐 PRD §5.7）。
 
-提供书籍 CRUD、文件上传、内容解析触发、RAG 问答、笔记管理接口。
+提供书籍 CRUD、文件上传、内容解析触发、章节管理、全文搜索、
+RAG 问答、笔记管理、AI 知识提取接口。
 """
 
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
@@ -14,14 +15,21 @@ from app.core.exceptions import NotFoundException
 from app.core.permissions import reject_viewer_write
 from app.models.user import User
 from app.schemas.book import (
+    BookChapterResponse,
+    BookChapterTOC,
     BookCreate,
     BookNoteCreate,
     BookNoteResponse,
+    BookNoteUpdate,
     BookProgressUpdate,
     BookQARequest,
     BookQAResponse,
     BookResponse,
+    BookSearchRequest,
+    BookSearchResult,
     BookUpdate,
+    KnowledgeExtractionRequest,
+    KnowledgeExtractionResponse,
 )
 from app.schemas.common import ApiResponse
 from app.services.book_service import BookService
@@ -133,7 +141,7 @@ async def delete_book(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """删除书籍（同时删除关联的笔记和知识块）。"""
+    """删除书籍（同时删除关联的章节、笔记和知识块）。"""
     service = BookService(db)
     deleted = await service.delete_book(book_id)
     if not deleted:
@@ -174,11 +182,98 @@ async def parse_book(
 ):
     """触发书籍内容解析+知识提取（异步任务）。
 
-    返回任务 ID，可通过 Celery 结果后端查询任务状态。
+    返回任务 ID，可通过 Celery 结果后端或 SSE 进度接口查询任务状态。
     """
     service = BookService(db)
     result = await service.trigger_parse(book_id)
     return ApiResponse(data=result)
+
+
+@router.get(
+    "/{book_id}/parse/progress", summary="查询解析进度"
+)
+async def get_parse_progress(
+    book_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """查询书籍解析进度（轮询方式）。"""
+    service = BookService(db)
+    book = await service.get_book(book_id)
+    if book is None:
+        raise NotFoundException(
+            message="书籍不存在", detail={"book_id": str(book_id)}
+        )
+    return ApiResponse(
+        data={
+            "book_id": str(book_id),
+            "status": book.parse_status or "pending",
+            "progress": book.parse_progress,
+            "total_chapters": book.total_chapters,
+            "total_chunks": book.total_chunks,
+        }
+    )
+
+
+# ---------- 章节管理（Stage 7.4） ----------
+
+
+@router.get("/{book_id}/chapters", summary="获取书籍目录")
+async def list_chapters(
+    book_id: uuid.UUID,
+    include_content: bool = Query(
+        False, description="是否包含正文（默认仅目录）"
+    ),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取书籍章节列表（默认仅目录导航，不含正文）。"""
+    service = BookService(db)
+    chapters = await service.list_chapters(
+        book_id, include_content=include_content
+    )
+    schema = BookChapterResponse if include_content else BookChapterTOC
+    return ApiResponse(data=[schema.model_validate(c) for c in chapters])
+
+
+@router.get(
+    "/{book_id}/chapters/{chapter_order}", summary="获取章节详情"
+)
+async def get_chapter(
+    book_id: uuid.UUID,
+    chapter_order: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取指定章节详情（含正文）。"""
+    service = BookService(db)
+    chapter = await service.get_chapter(book_id, chapter_order)
+    if chapter is None:
+        raise NotFoundException(
+            message="章节不存在",
+            detail={"book_id": str(book_id), "chapter_order": chapter_order},
+        )
+    return ApiResponse(data=BookChapterResponse.model_validate(chapter))
+
+
+# ---------- 全文搜索（Stage 7.4） ----------
+
+
+@router.post("/{book_id}/search", summary="书籍全文搜索")
+async def search_in_book(
+    book_id: uuid.UUID,
+    data: BookSearchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """在书籍知识块中全文搜索，返回匹配片段及上下文。"""
+    service = BookService(db)
+    results = await service.search_in_book(
+        book_id, data.keyword, limit=data.limit
+    )
+    return ApiResponse(
+        data=[BookSearchResult(**r) for r in results]
+    )
 
 
 # ---------- RAG 问答 ----------
@@ -193,11 +288,33 @@ async def book_qa(
 ):
     """基于书籍内容的 RAG 问答。
 
-    检索书中相关知识片段，结合 LLM 生成回答。
+    使用余弦相似度向量检索相关知识片段，结合 LLM 生成回答。
     """
     service = BookService(db)
     result = await service.qa(book_id, data)
     return ApiResponse(data=BookQAResponse(**result))
+
+
+# ---------- AI 知识提取（Stage 7.5） ----------
+
+
+@router.post(
+    "/{book_id}/extract", summary="AI 知识提取（6 部分策略草稿）"
+)
+async def extract_knowledge(
+    book_id: uuid.UUID,
+    data: KnowledgeExtractionRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """从书籍章节中提取交易策略知识，生成 6 部分策略草稿。
+
+    可指定 `chapter_order` 提取单章节，留空则全书检索相关内容。
+    返回内容包含可直接保存为策略的草稿 DSL。
+    """
+    service = BookService(db)
+    result = await service.extract_knowledge(book_id, data)
+    return ApiResponse(data=result)
 
 
 # ---------- 笔记管理 ----------
@@ -232,3 +349,36 @@ async def create_note(
     service = BookService(db)
     note = await service.create_note(current_user.id, note_data)
     return ApiResponse(data=BookNoteResponse.model_validate(note))
+
+
+@router.patch("/notes/{note_id}", summary="更新笔记")
+async def update_note(
+    note_id: uuid.UUID,
+    data: BookNoteUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新笔记内容或类型。"""
+    service = BookService(db)
+    note = await service.update_note(note_id, data)
+    if note is None:
+        raise NotFoundException(
+            message="笔记不存在", detail={"note_id": str(note_id)}
+        )
+    return ApiResponse(data=BookNoteResponse.model_validate(note))
+
+
+@router.delete("/notes/{note_id}", summary="删除笔记")
+async def delete_note(
+    note_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除笔记。"""
+    service = BookService(db)
+    deleted = await service.delete_note(note_id)
+    if not deleted:
+        raise NotFoundException(
+            message="笔记不存在", detail={"note_id": str(note_id)}
+        )
+    return ApiResponse(data={"deleted": True})
