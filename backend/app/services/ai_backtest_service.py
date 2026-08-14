@@ -107,8 +107,6 @@ class AIBacktestService:
         strategy = result.scalar_one_or_none()
         if strategy is None:
             raise NotFoundException(message="策略不存在")
-        if strategy.status == "draft":
-            raise BadRequestException(message="草稿状态的策略不可用于回测")
         if not strategy.rules:
             raise BadRequestException(message="策略规则为空")
         return strategy
