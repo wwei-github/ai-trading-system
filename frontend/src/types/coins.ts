@@ -59,3 +59,26 @@ export interface CompareResultItem {
   symbol?: string;
   error?: string;
 }
+
+// 后端 KlineResponse 包装
+export interface KlineResponse {
+  symbol: string;
+  timeframe: string;
+  data: KlinePoint[];
+  source?: string;
+  last_updated?: string;
+}
+
+// 后端 CompareResponse
+export interface CompareResponse {
+  symbols: string[];
+  days: number;
+  normalized_curve: CompareCurvePoint[];
+  correlation?: Record<string, Record<string, number>>;
+  summary?: Record<string, Record<string, number>>;
+}
+
+export interface CompareCurvePoint {
+  date: string;
+  values: Record<string, number>;
+}

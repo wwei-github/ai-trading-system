@@ -7,3 +7,6 @@ export type { PieChartProps, PieChartData } from './PieChart';
 
 export { default as BarChart } from './BarChart';
 export type { BarChartProps, BarChartData } from './BarChart';
+
+export { default as KLineChart } from './KLineChart';
+export type { KLineChartProps } from './KLineChart';

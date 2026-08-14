@@ -25,20 +25,17 @@ import {
   ReloadOutlined,
   BarChartOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import {
   PageContainer,
   EmptyState,
   AmountText,
 } from '@/components/Common';
-import { LineChart } from '@/components/Chart';
+import { LineChart, KLineChart } from '@/components/Chart';
 import { coinApi } from '@/api/coins';
 import type {
   Coin,
   CoinTicker,
-  KlinePoint,
   KlinePeriod,
-  CompareResultItem,
 } from '@/types';
 
 const { Title } = Typography;
@@ -100,7 +97,7 @@ const CoinsPage = () => {
   const compareSymbols = useMemo(() => Array.from(compareSet), [compareSet]);
 
   const {
-    data: compareResult = [],
+    data: compareResult,
     isLoading: compareLoading,
   } = useQuery({
     queryKey: ['coins', 'compare', compareSymbols, period],
@@ -113,83 +110,21 @@ const CoinsPage = () => {
     enabled: compareSymbols.length > 0,
   });
 
-  const klineChartData = useMemo(() => {
-    if (!kline || kline.length === 0) {
-      return { categories: [], series: [] };
-    }
-    const categories = kline.map((k) =>
-      dayjs(k.timestamp).format(
-        period === '1m' || period === '5m' || period === '15m'
-          ? 'HH:mm'
-          : period === '1h' || period === '4h'
-            ? 'MM-DD HH:mm'
-            : 'YYYY-MM-DD',
-      ),
-    );
-    const closeData = kline.map((k) => k.close);
-    return {
-      categories,
-      series: [
-        {
-          name: '收盘价',
-          data: closeData,
-          area: true,
-          color: '#1677ff',
-        },
-      ],
-    };
-  }, [kline, period]);
-
   const compareChartData = useMemo(() => {
-    if (!compareResult || compareResult.length === 0) {
+    const curve = compareResult?.normalized_curve;
+    if (!curve || curve.length === 0) {
       return { categories: [], series: [] };
     }
-    const validItems = compareResult.filter((item) => item.symbol);
-    if (validItems.length === 0) {
-      return { categories: [], series: [] };
-    }
-    const series: any[] = [];
-    let categories: string[] = [];
-    validItems.forEach((item, idx) => {
-      if (item.analysis && typeof item.analysis.indicators === 'object') {
-        const indicators = item.analysis.indicators;
-        const keys = Object.keys(indicators).sort();
-        if (categories.length === 0) {
-          categories = keys;
-        }
-        const values = keys.map((k) => {
-          const v = indicators[k];
-          return typeof v === 'number' ? v : 0;
-        });
-        const base = values[0] || 1;
-        const normalized = values.map((v) => ((v - base) / Math.abs(base)) * 100);
-        series.push({
-          name: item.symbol,
-          data: normalized,
-          area: false,
-        });
-      } else {
-        const mockLength = 20;
-        if (categories.length === 0) {
-          categories = Array.from({ length: mockLength }, (_, i) =>
-            dayjs().subtract(mockLength - 1 - i, 'day').format('MM-DD'),
-          );
-        }
-        const seed = (item.symbol?.length || 1) + idx;
-        const values = Array.from({ length: mockLength }, (_, i) => {
-          const base = 100 + (seed % 10);
-          const trend = Math.sin((i + seed) / 3) * 10;
-          return base + trend + (i % 5) * 0.5;
-        });
-        const first = values[0];
-        const normalized = values.map((v) => ((v - first) / Math.abs(first)) * 100);
-        series.push({
-          name: item.symbol || `币种${idx + 1}`,
-          data: normalized,
-          area: false,
-        });
-      }
-    });
+    const categories = curve.map((p) => p.date.slice(5)); // MM-DD
+    const symbols = compareResult?.symbols || [];
+    const series = symbols.map((sym) => ({
+      name: sym,
+      data: curve.map((p) => {
+        const v = p.values[sym];
+        return v != null ? v * 100 : 0; // 转为百分比
+      }),
+      area: false,
+    }));
     return { categories, series };
   }, [compareResult]);
 
@@ -237,7 +172,6 @@ const CoinsPage = () => {
     if (value === undefined || value === null) {
       return <Tag>-</Tag>;
     }
-    const isPositive = value >= 0;
     return (
       <AmountText
         value={value}
@@ -318,7 +252,7 @@ const CoinsPage = () => {
                     const inCompare = compareSet.has(coin.symbol);
                     return (
                       <List.Item
-                        key={coin.id}
+                        key={coin.symbol}
                         onClick={() => handleSelectCoin(coin.symbol)}
                         style={{
                           cursor: 'pointer',
@@ -481,15 +415,10 @@ const CoinsPage = () => {
               }
             >
               {selectedSymbol ? (
-                <LineChart
-                  categories={klineChartData.categories}
-                  series={klineChartData.series}
+                <KLineChart
+                  data={kline}
                   loading={klineLoading}
-                  height={380}
-                  xAxisName="时间"
-                  yAxisName="价格 (USDT)"
-                  showLegend={false}
-                  valueSuffix=" USDT"
+                  height={440}
                   emptyText="暂无K线数据"
                 />
               ) : (

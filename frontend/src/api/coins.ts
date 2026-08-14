@@ -3,11 +3,12 @@ import type {
   Coin,
   CoinTicker,
   KlinePoint,
+  KlineResponse,
   IndicatorData,
   CoinListParams,
   KlineParams,
   CompareParams,
-  CompareResultItem,
+  CompareResponse,
 } from '@/types';
 
 const _sym = (s: string) => s.replace(/\//g, '-');
@@ -39,10 +40,11 @@ export const coinApi = {
     if (params.period) query.append('timeframe', params.period);
     if (params.limit) query.append('limit', String(params.limit));
     const qs = query.toString();
-    const res = await request.get<KlinePoint[]>(
+    // 后端返回 { code, data: { symbol, timeframe, data: KlinePoint[] } }
+    const res = await request.get<KlineResponse>(
       `/coins/${_sym(params.symbol)}/kline${qs ? `?${qs}` : ''}`,
     );
-    return res.data;
+    return res.data.data || [];
   },
 
   async getIndicators(symbol: string, period?: string): Promise<IndicatorData> {
@@ -55,13 +57,13 @@ export const coinApi = {
     return res.data;
   },
 
-  async compare(params: CompareParams): Promise<CompareResultItem[]> {
+  async compare(params: CompareParams): Promise<CompareResponse> {
     const query = new URLSearchParams();
     query.append('symbols', params.symbols.join(','));
     if (params.period) query.append('timeframe', params.period);
     if (params.days) query.append('days', String(params.days));
     const qs = query.toString();
-    const res = await request.get<CompareResultItem[]>(`/coins/compare${qs ? `?${qs}` : ''}`);
+    const res = await request.get<CompareResponse>(`/coins/compare${qs ? `?${qs}` : ''}`);
     return res.data;
   },
 };
