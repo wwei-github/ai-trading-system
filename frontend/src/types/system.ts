@@ -118,3 +118,42 @@ export interface UserListParams extends PageParams {
   is_active?: boolean;
   keyword?: string;
 }
+
+// 错误日志
+export interface ErrorLogItem {
+  id: string;
+  request_id?: string;
+  level: 'ERROR' | 'WARNING' | 'INFO';
+  module: string;
+  message: string;
+  exception_type?: string;
+  traceback?: string;
+  request_path?: string;
+  request_method?: string;
+  request_params?: any;
+  status_code?: number;
+  user_id?: string;
+  user_ip?: string;
+  user_agent?: string;
+  duration_ms?: number;
+  detail?: Record<string, any>;
+  created_at: string;
+}
+
+export interface ErrorLogStats {
+  total_errors: number;
+  error_count: number;
+  warning_count: number;
+  info_count: number;
+  module_distribution: Record<string, number>;
+  recent_errors: ErrorLogItem[];
+}
+
+export interface ErrorLogParams extends PageParams {
+  level?: string;
+  module?: string;
+  status_code?: number;
+  keyword?: string;
+  start_time?: string;
+  end_time?: string;
+}

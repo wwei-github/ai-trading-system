@@ -170,6 +170,10 @@ def create_app() -> FastAPI:
     from app.middleware.audit_middleware import audit_middleware
     app.middleware("http")(audit_middleware)
 
+    # 错误日志中间件（捕获异常和 4xx/5xx 响应）
+    from app.middleware.error_log_middleware import error_log_middleware
+    app.middleware("http")(error_log_middleware)
+
     # 注册异常处理器
     register_exception_handlers(app)
 

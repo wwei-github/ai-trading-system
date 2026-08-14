@@ -7,6 +7,7 @@ from app.models.account import ExchangeAccount
 from app.models.ai import AIConversation, AIMessage
 from app.models.ai_backtest import AIBacktest
 from app.models.ai_backtest_trade import AIBacktestTrade
+from app.models.error_log import ErrorLog
 from app.models.asset import AssetSnapshot
 from app.models.coin import Kline, Watchlist
 from app.models.audit import AuditLog
@@ -62,4 +63,5 @@ __all__ = [
     "PasswordResetCode",
     "AIBacktest",
     "AIBacktestTrade",
+    "ErrorLog",
 ]

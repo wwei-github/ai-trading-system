@@ -13,6 +13,7 @@ from app.api.v1 import (
     auth,
     books,
     coins,
+    error_log_routes,
     statistics,
     strategies,
     system,
@@ -39,5 +40,6 @@ api_router.include_router(ai.router)
 api_router.include_router(ai_providers.router)
 api_router.include_router(ai_backtest_routes.router)
 api_router.include_router(system.router)
+api_router.include_router(error_log_routes.router)
 
 __all__ = ["api_router"]

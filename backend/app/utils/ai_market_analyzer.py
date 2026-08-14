@@ -1,6 +1,5 @@
 """AI 市场分析封装。"""
 
-import asyncio
 import json
 import logging
 from typing import Any, Dict, Optional
@@ -66,7 +65,22 @@ _MARKET_ANALYSIS_PROMPT = """你是一个专业的加密货币交易AI助手，�
 class AIMarketAnalyzer:
     """AI 市场分析器。"""
 
-    def analyze(
+    def __init__(self, session_maker=None):
+        """
+        Args:
+            session_maker: 异步 session maker（Celery 子进程中使用局部 session maker）
+        """
+        self._session_maker = session_maker
+
+    async def _get_session_maker(self):
+        """获取 session maker（优先使用外部传入的，否则创建全新的）。"""
+        if self._session_maker:
+            return self._session_maker
+        from app.tasks.ai_backtest_tasks import _make_local_session_maker
+        _, maker = await _make_local_session_maker()
+        return maker
+
+    async def analyze(
         self,
         symbol: str,
         timeframe: str,
@@ -79,7 +93,7 @@ class AIMarketAnalyzer:
         total_klines: int,
     ) -> Dict[str, Any]:
         """
-        调用 AI 分析当前市场并给出决策（同步调用，供 Celery 任务使用）。
+        调用 AI 分析当前市场并给出决策。
 
         Returns:
             AI 分析结果字典，包含 market_analysis, decision, trade_plan
@@ -124,9 +138,9 @@ class AIMarketAnalyzer:
             strategy_rules=strategy_summary,
         )
 
-        # 调用 LLM（同步方式，在 Celery 任务中运行）
+        # 调用 LLM（异步方式，在 Celery 任务的 asyncio.run() 上下文中运行）
         try:
-            result = asyncio.run(self._call_llm(prompt))
+            result = await self._call_llm(prompt)
             return self._parse_result(result)
         except Exception as e:
             logger.error(f"AI analyze failed: {e}")
@@ -134,14 +148,11 @@ class AIMarketAnalyzer:
 
     async def _call_llm(self, prompt: str) -> str:
         """调用 LLM 获取分析结果。"""
-        from app.core.database import SessionLocal
-        db = SessionLocal()
-        try:
+        session_maker = await self._get_session_maker()
+        async with session_maker() as db:
             provider = await ProviderFactory.get_active_provider(db)
             result = await provider.chat(prompt, temperature=0.1)
             return result
-        finally:
-            db.close()
 
     def _parse_result(self, raw: str) -> Dict[str, Any]:
         """解析 LLM 返回的 JSON 结果。"""

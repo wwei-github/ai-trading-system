@@ -10,6 +10,7 @@ import type {
   AuditLogParams,
   UserListParams,
 } from '@/types';
+import type { ErrorLogItem, ErrorLogStats, ErrorLogParams } from '@/types';
 import type { PaginatedResponse } from '@/types/api';
 
 export const systemApi = {
@@ -55,6 +56,27 @@ export const systemApi = {
 
   async getAuditLogs(params?: AuditLogParams): Promise<PaginatedResponse<AuditLog>> {
     const res = await request.get<PaginatedResponse<AuditLog>>('/system/audit-logs', { params });
+    return res.data;
+  },
+
+  // 错误日志
+  async getErrorLogs(params: ErrorLogParams): Promise<PaginatedResponse<ErrorLogItem>> {
+    const res = await request.get<PaginatedResponse<ErrorLogItem>>('/system/error-logs', { params });
+    return res.data;
+  },
+
+  async getErrorLog(id: string): Promise<ErrorLogItem> {
+    const res = await request.get<ErrorLogItem>(`/system/error-logs/${id}`);
+    return res.data;
+  },
+
+  async getErrorLogStats(): Promise<ErrorLogStats> {
+    const res = await request.get<ErrorLogStats>('/system/error-logs/stats');
+    return res.data;
+  },
+
+  async cleanErrorLogs(data: { before_days: number; level?: string }): Promise<{ deleted_count: number }> {
+    const res = await request.post<{ deleted_count: number }>('/system/error-logs/clean', data);
     return res.data;
   },
 };

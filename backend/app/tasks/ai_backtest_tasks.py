@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
-from app.core.database import async_session_maker, redis_client
+from app.core.database import redis_client
 from app.models.ai_backtest import AIBacktest
 from app.models.ai_backtest_trade import AIBacktestTrade
 from app.tasks import celery_app
@@ -61,172 +61,200 @@ def run_ai_backtest(self, backtest_id: str):
     """执行 AI 回测（核心入口）。"""
     logger.info(f"AI backtest {backtest_id} started")
 
-    # 使用异步方式操作数据库
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(_run_backtest_async(backtest_id))
+        asyncio.run(_run_backtest_async(backtest_id))
     except Exception as e:
         logger.exception(f"AI backtest {backtest_id} failed: {e}")
         _publish_progress(backtest_id, "error", 0, 0, 0, 0, message=str(e))
         # 更新数据库状态为失败
-        loop.run_until_complete(_update_status_failed(backtest_id, str(e)))
-    finally:
-        loop.close()
+        asyncio.run(_update_status_failed(backtest_id, str(e)))
+
+
+async def _make_local_session_maker():
+    """在子进程当前事件循环中创建全新的引擎和 session maker。
+
+    Celery prefork 模式下，模块级 async_session_maker 的引擎在父进程
+    事件循环中创建，子进程 fork 后继承的引擎绑定了父进程的循环。直接
+    使用会导致 asyncpg 的 "Future attached to a different loop" 错误。
+    """
+    from app.core.database import _build_engine_kwargs
+    from sqlalchemy.ext.asyncio import (
+        AsyncSession,
+        async_sessionmaker,
+        create_async_engine,
+    )
+
+    engine = create_async_engine(**_build_engine_kwargs())
+    return engine, async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False, autoflush=False
+    )
 
 
 async def _run_backtest_async(backtest_id: str):
     """异步执行回测主逻辑。"""
-    async with async_session_maker() as session:
-        # 1. 加载配置
-        from sqlalchemy import select
+    local_engine, local_session_maker = await _make_local_session_maker()
+    try:
+        async with local_session_maker() as session:
+            # 1. 加载配置
+            from sqlalchemy import select
 
-        result = await session.execute(
-            select(AIBacktest).where(AIBacktest.id == backtest_id)
-        )
-        backtest = result.scalar_one_or_none()
-        if not backtest:
-            logger.error(f"AI backtest {backtest_id} not found")
-            return
+            result = await session.execute(
+                select(AIBacktest).where(AIBacktest.id == backtest_id)
+            )
+            backtest = result.scalar_one_or_none()
+            if not backtest:
+                logger.error(f"AI backtest {backtest_id} not found")
+                return
 
-        # 更新状态为 running
-        backtest.status = "running"
-        backtest.started_at = datetime.now(timezone.utc)
-        await session.commit()
+            # 更新状态为 running
+            backtest.status = "running"
+            backtest.started_at = datetime.now(timezone.utc)
+            await session.commit()
 
-        # 构建上下文
-        config = {
-            "strategy_id": str(backtest.strategy_id),
-            "symbol": backtest.symbol,
-            "timeframe": backtest.timeframe,
-            "start_time": backtest.start_time,
-            "total_klines": backtest.total_klines,
-            "initial_capital": float(backtest.initial_capital),
-            "fee_rate": float(backtest.fee_rate),
-            "use_ai": backtest.use_ai,
-            "strategy_rules": backtest.strategy.rules if backtest.strategy else {},
-        }
-        ctx = AIBacktestContext(backtest_id, config)
+            # 构建上下文
+            config = {
+                "strategy_id": str(backtest.strategy_id),
+                "symbol": backtest.symbol,
+                "timeframe": backtest.timeframe,
+                "start_time": backtest.start_time,
+                "total_klines": backtest.total_klines,
+                "initial_capital": float(backtest.initial_capital),
+                "fee_rate": float(backtest.fee_rate),
+                "use_ai": backtest.use_ai,
+                "strategy_rules": backtest.strategy.rules if backtest.strategy else {},
+            }
+            ctx = AIBacktestContext(backtest_id, config)
 
-    # 2. 预热阶段
-    _publish_progress(backtest_id, "preheat", 2, 0, ctx.total_klines, 0,
-                      message="正在获取预热数据...")
-    preheat_klines = _fetch_klines(ctx.symbol, ctx.timeframe, ctx.start_time, PREHEAT_COUNT)
-    ctx.preheat_count = len(preheat_klines)
+        # 2. 预热阶段
+        _publish_progress(backtest_id, "preheat", 2, 0, ctx.total_klines, 0,
+                          message="正在获取预热数据...")
+        preheat_klines = _fetch_klines(ctx.symbol, ctx.timeframe, ctx.start_time, PREHEAT_COUNT)
+        ctx.preheat_count = len(preheat_klines)
 
-    # 3. 拉取回测区间数据
-    _publish_progress(backtest_id, "preheat", 5, 0, ctx.total_klines, 0,
-                      message="正在拉取回测区间 K 线数据...")
-    backtest_klines = _fetch_backtest_klines(ctx)
-    ctx.all_klines = preheat_klines + backtest_klines
+        # 3. 拉取回测区间数据
+        _publish_progress(backtest_id, "preheat", 5, 0, ctx.total_klines, 0,
+                          message="正在拉取回测区间 K 线数据...")
+        backtest_klines = _fetch_backtest_klines(ctx)
+        ctx.all_klines = preheat_klines + backtest_klines
 
-    # 4. 逐根推进主循环
-    analyzer = AIMarketAnalyzer()
-    executor = DecisionExecutor(ctx)
+        # 4. 逐根推进主循环
+        analyzer = AIMarketAnalyzer(session_maker=local_session_maker)
+        executor = DecisionExecutor(ctx)
 
-    for idx, kline in enumerate(backtest_klines):
-        ctx.current_kline_index = idx + 1
-        kline_data = ctx.all_klines[:ctx.preheat_count + idx + 1]
+        for idx, kline in enumerate(backtest_klines):
+            ctx.current_kline_index = idx + 1
+            kline_data = ctx.all_klines[:ctx.preheat_count + idx + 1]
 
-        # 计算技术指标
-        indicators = _calculate_indicators(kline_data)
+            # 计算技术指标
+            indicators = _calculate_indicators(kline_data)
 
-        # AI 分析（或规则引擎）
-        ai_result = None
-        if ctx.use_ai_real:
-            try:
-                ai_result = analyzer.analyze(
-                    symbol=ctx.symbol,
-                    timeframe=ctx.timeframe,
-                    kline=kline,
-                    indicators=indicators,
-                    position=ctx.current_position,
-                    strategy_rules=ctx.strategy_rules,
-                    account_status={
-                        "initial_capital": ctx.initial_capital,
-                        "current_equity": ctx.current_equity,
-                        "available_cash": ctx.available_cash,
-                    },
-                    current_kline_index=idx + 1,
-                    total_klines=ctx.total_klines,
+            # AI 分析（或规则引擎）
+            ai_result = None
+            if ctx.use_ai_real:
+                try:
+                    ai_result = await analyzer.analyze(
+                        symbol=ctx.symbol,
+                        timeframe=ctx.timeframe,
+                        kline=kline,
+                        indicators=indicators,
+                        position=ctx.current_position,
+                        strategy_rules=ctx.strategy_rules,
+                        account_status={
+                            "initial_capital": ctx.initial_capital,
+                            "current_equity": ctx.current_equity,
+                            "available_cash": ctx.available_cash,
+                        },
+                        current_kline_index=idx + 1,
+                        total_klines=ctx.total_klines,
+                    )
+                    ctx.ai_call_count += 1
+                    ctx.ai_fail_count = 0
+                except Exception as e:
+                    ctx.ai_fail_count += 1
+                    logger.warning(f"AI call failed at kline {idx+1}: {e}")
+                    if ctx.ai_fail_count >= 3:
+                        ctx.use_ai_real = False
+                        logger.warning("AI 连续失败 3 次，降级为规则引擎")
+
+            # 执行决策
+            executor.execute(kline, ai_result, indicators)
+
+            # 更新进度（每 10 根或最后 10 根每根都推）
+            if idx % 10 == 0 or idx >= ctx.total_klines - 10:
+                progress = 5 + int((idx + 1) / ctx.total_klines * 90)
+                _publish_progress(
+                    backtest_id, "running", progress,
+                    idx + 1, ctx.total_klines, ctx.total_trades,
+                    current_position=ctx.current_position,
+                    message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
                 )
-                ctx.ai_call_count += 1
-                ctx.ai_fail_count = 0
-            except Exception as e:
-                ctx.ai_fail_count += 1
-                logger.warning(f"AI call failed at kline {idx+1}: {e}")
-                if ctx.ai_fail_count >= 3:
-                    ctx.use_ai_real = False
-                    logger.warning("AI 连续失败 3 次，降级为规则引擎")
 
-        # 执行决策
-        executor.execute(kline, ai_result, indicators)
+        # 5. 生成总结
+        _publish_progress(backtest_id, "summary", 98, ctx.total_klines, ctx.total_klines,
+                          ctx.total_trades, message="正在生成总结报告...")
+        summary = _calculate_summary(ctx)
 
-        # 更新进度（每 10 根或最后 10 根每根都推）
-        if idx % 10 == 0 or idx >= ctx.total_klines - 10:
-            progress = 5 + int((idx + 1) / ctx.total_klines * 90)
-            _publish_progress(
-                backtest_id, "running", progress,
-                idx + 1, ctx.total_klines, ctx.total_trades,
-                current_position=ctx.current_position,
-                message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
-            )
+        # 6. 保存交易记录到数据库（使用本地 session maker）
+        async with local_session_maker() as session:
+            backtest = (await session.execute(
+                select(AIBacktest).where(AIBacktest.id == backtest_id)
+            )).scalar_one()
 
-    # 5. 生成总结
-    _publish_progress(backtest_id, "summary", 98, ctx.total_klines, ctx.total_klines,
-                      ctx.total_trades, message="正在生成总结报告...")
-    summary = _calculate_summary(ctx)
+            # 保存交易明细
+            for t in ctx.completed_trades:
+                # 转换时间戳毫秒 -> datetime
+                _entry_time = t.get("entry_time")
+                if isinstance(_entry_time, (int, float)):
+                    _entry_time = datetime.fromtimestamp(_entry_time / 1000, tz=timezone.utc)
+                _exit_time = t.get("exit_time")
+                if isinstance(_exit_time, (int, float)):
+                    _exit_time = datetime.fromtimestamp(_exit_time / 1000, tz=timezone.utc)
 
-    # 6. 保存交易记录到数据库
-    async with async_session_maker() as session:
-        backtest = (await session.execute(
-            select(AIBacktest).where(AIBacktest.id == backtest_id)
-        )).scalar_one()
+                trade = AIBacktestTrade(
+                    backtest_id=backtest.id,
+                    index=t["index"],
+                    direction=t["direction"],
+                    entry_time=_entry_time,
+                    entry_price=t["entry_price"],
+                    quantity=t["quantity"],
+                    open_ai_analysis=t.get("open_ai_analysis"),
+                    open_reason=t.get("open_reason"),
+                    open_confidence=t.get("open_confidence"),
+                    stop_loss=t.get("stop_loss"),
+                    take_profit=t.get("take_profit"),
+                    exit_time=_exit_time,
+                    exit_price=t.get("exit_price"),
+                    exit_reason=t.get("exit_reason"),
+                    exit_ai_analysis=t.get("exit_ai_analysis"),
+                    exit_confidence=t.get("exit_confidence"),
+                    holding_bars=t.get("holding_bars"),
+                    pnl=t.get("pnl"),
+                    pnl_pct=t.get("pnl_pct"),
+                    fee=t.get("fee"),
+                    extra=t.get("extra"),
+                )
+                session.add(trade)
 
-        # 保存交易明细
-        for t in ctx.completed_trades:
-            trade = AIBacktestTrade(
-                backtest_id=backtest.id,
-                index=t["index"],
-                direction=t["direction"],
-                entry_time=t["entry_time"],
-                entry_price=t["entry_price"],
-                quantity=t["quantity"],
-                open_ai_analysis=t.get("open_ai_analysis"),
-                open_reason=t.get("open_reason"),
-                open_confidence=t.get("open_confidence"),
-                stop_loss=t.get("stop_loss"),
-                take_profit=t.get("take_profit"),
-                exit_time=t.get("exit_time"),
-                exit_price=t.get("exit_price"),
-                exit_reason=t.get("exit_reason"),
-                exit_ai_analysis=t.get("exit_ai_analysis"),
-                exit_confidence=t.get("exit_confidence"),
-                holding_bars=t.get("holding_bars"),
-                pnl=t.get("pnl"),
-                pnl_pct=t.get("pnl_pct"),
-                fee=t.get("fee"),
-                extra=t.get("extra"),
-            )
-            session.add(trade)
+            # 更新回测记录
+            backtest.status = "completed"
+            backtest.completed_klines = ctx.total_klines
+            backtest.completed_at = datetime.now(timezone.utc)
+            backtest.result_summary = summary
+            await session.commit()
 
-        # 更新回测记录
-        backtest.status = "completed"
-        backtest.completed_klines = ctx.total_klines
-        backtest.completed_at = datetime.now(timezone.utc)
-        backtest.result_summary = summary
-        await session.commit()
+        # 7. 推送完成事件
+        _publish_progress(backtest_id, "done", 100, ctx.total_klines, ctx.total_klines,
+                          ctx.total_trades, message="回测完成")
 
-    # 7. 推送完成事件
-    _publish_progress(backtest_id, "done", 100, ctx.total_klines, ctx.total_klines,
-                      ctx.total_trades, message="回测完成")
-
-    logger.info(f"AI backtest {backtest_id} completed: {ctx.total_trades} trades")
+        logger.info(f"AI backtest {backtest_id} completed: {ctx.total_trades} trades")
+    finally:
+        await local_engine.dispose()
 
 
 async def _update_status_failed(backtest_id: str, error: str):
     """更新回测状态为失败。"""
-    async with async_session_maker() as session:
+    _, local_session_maker = await _make_local_session_maker()
+    async with local_session_maker() as session:
         from sqlalchemy import select
         result = await session.execute(
             select(AIBacktest).where(AIBacktest.id == backtest_id)
@@ -244,10 +272,15 @@ def _publish_progress(
     current_kline: int, total_klines: int, current_trades: int,
     current_position: Optional[dict] = None, message: str = "",
 ):
-    """推送进度到 Redis Pub/Sub。"""
-    if redis_client is None:
-        return
+    """推送进度到 Redis Pub/Sub。
+
+    使用 settings.REDIS_URL 直接创建同步 Redis 连接，
+    避免依赖模块级 async redis_client（Celery 子进程中可能不可用）。
+    """
     try:
+        from app.core.config import settings
+        import redis as sync_redis
+
         payload = {
             "backtest_id": backtest_id,
             "stage": stage,
@@ -259,13 +292,7 @@ def _publish_progress(
             "message": message,
         }
         channel = f"ai-backtest-progress:{backtest_id}"
-        # 同步调用 Redis
-        import redis as sync_redis
-        r = sync_redis.Redis(
-            host=redis_client.connection_pool.connection_kwargs.get("host", "localhost"),
-            port=redis_client.connection_pool.connection_kwargs.get("port", 6379),
-            db=0,
-        )
+        r = sync_redis.from_url(settings.REDIS_URL)
         r.publish(channel, json.dumps(payload, ensure_ascii=False))
         r.close()
     except Exception as e:
