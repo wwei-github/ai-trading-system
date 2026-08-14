@@ -81,7 +81,11 @@ class ProviderFactory:
                     logger.warning("API Key 解密失败，使用原始值")
             return OpenAICompatibleProvider(decrypted_config)
         elif ptype == "ollama":
-            return OllamaProvider(config)
+            # 用运行时 OLLAMA_BASE_URL 覆盖 DB 中存储的 base_url
+            # 这样用户切换本地/Docker 开发环境时无需修改 DB 配置
+            ollama_config = dict(config)
+            ollama_config["base_url"] = settings.OLLAMA_BASE_URL.rstrip("/")
+            return OllamaProvider(ollama_config)
         return NoopProvider(f"未知的 Provider 类型: {ptype}")
 
     # ---------- 管理方法 ----------
@@ -263,7 +267,21 @@ class ProviderFactory:
             data = {"active_provider_id": provider["id"], "providers": [provider]}
             logger.info("从环境变量迁移 AI Provider 配置: {}", provider["name"])
         else:
-            data = {"active_provider_id": None, "providers": []}
-            logger.info("未配置 LLM_API_KEY，写入空 AI Provider 配置")
+            # 无 API Key 时，创建默认的 Ollama Provider（指向本地即可）
+            provider = {
+                "id": f"provider-{uuid.uuid4().hex[:12]}",
+                "type": "ollama",
+                "name": "Ollama 本地 (qwen3.5:9b)",
+                "enabled": True,
+                "config": {
+                    "base_url": settings.OLLAMA_BASE_URL,
+                    "model": "qwen3.5:9b",
+                    "temperature": 0.7,
+                    "max_tokens": 4096,
+                    "embedding_model": "nomic-embed-text",
+                },
+            }
+            data = {"active_provider_id": provider["id"], "providers": [provider]}
+            logger.info("未配置 LLM_API_KEY，创建默认 Ollama Provider: {}", provider["name"])
 
         await ProviderFactory._save_providers(db, data)

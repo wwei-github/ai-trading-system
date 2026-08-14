@@ -53,6 +53,7 @@ import type {
   UserListParams,
 } from '@/types';
 import { EXCHANGE_OPTIONS } from '@/types/accounts';
+import AIProviders from './AIProviders';
 
 const { RangePicker } = DatePicker;
 
@@ -1139,6 +1140,11 @@ const SystemPage = () => {
         key: 'users',
         label: '用户管理',
         children: <UsersTab />,
+      },
+      {
+        key: 'ai-providers',
+        label: 'AI Provider',
+        children: <AIProviders />,
       },
       {
         key: 'config',

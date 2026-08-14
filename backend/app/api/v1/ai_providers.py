@@ -83,7 +83,9 @@ async def fetch_ollama_models(
     """获取指定 Ollama 服务的可用模型列表。"""
     import httpx
 
-    base_url = body.get("base_url", "http://ollama:11434").rstrip("/")
+    from app.core.config import settings
+
+    base_url = body.get("base_url", settings.OLLAMA_BASE_URL).rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{base_url}/api/tags")

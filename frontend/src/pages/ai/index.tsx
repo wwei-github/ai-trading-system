@@ -35,6 +35,7 @@ import {
   EmptyState,
 } from '@/components/Common';
 import { aiApi } from '@/api/ai';
+import { aiProviderApi } from '@/api/ai-provider';
 import type {
   AiMode,
   AiConversation,
@@ -232,6 +233,16 @@ const AiPage = () => {
     queryKey: ['ai', 'conversations'],
     queryFn: () => aiApi.getConversations(),
   });
+
+  const { data: providerData } = useQuery({
+    queryKey: ['ai-providers'],
+    queryFn: () => aiProviderApi.getProviders(),
+    refetchInterval: 60000,
+  });
+
+  const activeProvider = providerData?.providers?.find(
+    (p) => p.id === providerData.active_provider_id,
+  );
 
   const createConversationMutation = useMutation({
     mutationFn: (mode: AiMode) =>
@@ -558,6 +569,32 @@ const AiPage = () => {
                 options={MODE_OPTIONS.map((m) => ({ label: m.label, value: m.value }))}
               />
               <Space>
+                <span style={{ fontSize: 13, color: '#8c8c8c' }}>当前使用:</span>
+                <Select
+                  value={providerData?.active_provider_id}
+                  style={{ width: 200 }}
+                  onChange={(id) => {
+                    aiProviderApi.activateProvider(id).then(() => {
+                      message.success('Provider 已切换');
+                      queryClient.invalidateQueries({ queryKey: ['ai-providers'] });
+                    });
+                  }}
+                  placeholder="未配置 Provider"
+                  options={providerData?.providers?.map((p) => ({
+                    value: p.id,
+                    label: (
+                      <Space>
+                        {p.name}
+                        <Tag
+                          color={p.type === 'ollama' ? 'blue' : 'geekblue'}
+                          style={{ fontSize: 10, lineHeight: '16px' }}
+                        >
+                          {p.type === 'ollama' ? '本地' : '云端'}
+                        </Tag>
+                      </Space>
+                    ),
+                  })) || []}
+                />
                 <Button
                   icon={<RocketOutlined />}
                   onClick={() => setSignalModalOpen(true)}

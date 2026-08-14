@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     # 格式: http://127.0.0.1:7890 或 https://user:pass@proxy:port
     EXCHANGE_PROXY: str = ""
 
+    # Ollama 本地模型服务地址（首次迁移时写入 DB）
+    # 本地开发: http://localhost:11434
+    # Docker 部署: http://ollama:11434（由 docker-compose 自动注入）
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

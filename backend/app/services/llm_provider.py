@@ -186,7 +186,7 @@ class OllamaProvider(LLMProvider):
 
     def __init__(self, config: dict):
         self.base_url = config.get("base_url", "http://ollama:11434").rstrip("/")
-        self.model = config.get("model", "qwen3.5:7b")
+        self.model = config.get("model", "qwen3.5:9b")
         self.temperature = config.get("temperature", 0.7)
         self.max_tokens = config.get("max_tokens", 4096)
         self.embedding_model = config.get("embedding_model", "nomic-embed-text")

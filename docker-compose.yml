@@ -27,12 +27,16 @@ services:
       REDIS_URL: redis://redis:6379/0
       # 交易所 API 代理：通过 tinyproxy 容器转发
       EXCHANGE_PROXY: http://proxy:8888
+      # Ollama 本地模型：通过容器内网访问
+      OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
       proxy:
+        condition: service_started
+      ollama:
         condition: service_started
 
   # Celery Worker (复用 backend 镜像，覆盖启动命令)
@@ -48,6 +52,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
       EXCHANGE_PROXY: http://proxy:8888
+      OLLAMA_BASE_URL: http://ollama:11434
     depends_on:
       - redis
       - postgres
@@ -115,6 +120,58 @@ services:
       UPSTREAM_PROXY: ${PROXY_UPSTREAM:-}
     restart: unless-stopped
 
+  # Ollama 本地大模型服务
+  # 用于 AI 助手的本地推理，无需外部 API Key
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    # Apple Silicon (M1/M2/M3) 使用 CPU 运行（Metal 加速暂不支持容器内）
+    # NVIDIA GPU 用户可取消注释下方 deploy 配置
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Ollama 模型初始化容器（一次性任务）
+  # 启动时自动拉取默认模型，完成后自动退出
+  ollama-pull:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: >
+      sh -c "
+      echo '=== 启动 Ollama 服务端 ===' &&
+      ollama serve &
+      sleep 3 &&
+      echo '=== 开始拉取默认模型 ===' &&
+      until ollama list >/dev/null 2>&1; do sleep 1; done &&
+      echo '服务端就绪，开始拉取...' &&
+      ollama pull deepseek-r1:7b &&
+      echo '✓ deepseek-r1:7b 拉取完成' &&
+      ollama pull qwen3.5:9b &&
+      echo '✓ qwen3.5:9b 拉取完成' &&
+      ollama pull nomic-embed-text &&
+      echo '✓ nomic-embed-text 拉取完成' &&
+      echo '=== 所有模型拉取完成 ==='
+      "
+    depends_on:
+      ollama:
+        condition: service_started
+
 volumes:
   pgdata:
   redisdata:
+  ollama_data:
