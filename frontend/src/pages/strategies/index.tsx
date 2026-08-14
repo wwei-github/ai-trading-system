@@ -49,6 +49,7 @@ import {
 } from '@/components/Common';
 import { LineChart } from '@/components/Chart';
 import { strategyApi } from '@/api/strategies';
+import AIBacktestPanel from './components/AIBacktestPanel';
 import type {
   Strategy,
   StrategyCreateData,
@@ -78,7 +79,7 @@ const STRATEGY_STATUS_MAP: Record<StrategyStatus, { text: string; color: string 
   archived: { text: '已归档', color: 'error' },
 };
 
-type TabKey = 'library' | 'backtest' | 'paper' | 'live';
+type TabKey = 'library' | 'backtest' | 'ai-backtest' | 'paper' | 'live';
 
 interface BacktestFormValues {
   strategy_id: string;
@@ -952,6 +953,7 @@ const StrategiesPage = () => {
   const tabItems = [
     { key: 'library', label: '策略库', children: renderLibraryTab() },
     { key: 'backtest', label: '回测', children: renderBacktestTab() },
+    { key: 'ai-backtest', label: 'AI 回测', children: <AIBacktestPanel strategyId={selectedBacktestStrategyId} /> },
     { key: 'paper', label: '模拟交易', children: renderPaperTab() },
     { key: 'live', label: '实盘交易', children: renderLiveTab() },
   ];

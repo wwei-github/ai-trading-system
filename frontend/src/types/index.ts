@@ -9,3 +9,4 @@ export * from './books';
 export * from './ai';
 export * from './coins';
 export * from './ai-provider';
+export * from './ai-backtest';
