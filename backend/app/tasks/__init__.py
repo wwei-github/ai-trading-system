@@ -43,6 +43,7 @@ celery_app.conf.update(
         "sync_all_accounts": {"queue": "default"},
         "paper_trading_tick": {"queue": "default"},
         "live_signal_tick": {"queue": "default"},
+        "monitor_live_risk": {"queue": "default"},
     },
     # Celery Beat 定时调度
     beat_schedule={
@@ -66,6 +67,11 @@ celery_app.conf.update(
         "live-signal-tick-every-2-min": {
             "task": "live_signal_tick",
             "schedule": crontab(minute="*/2"),
+        },
+        # 每分钟风控监控（Stage 9.2）：日亏/回撤达标自动止停 + 告警
+        "monitor-live-risk-every-minute": {
+            "task": "monitor_live_risk",
+            "schedule": crontab(minute="*"),
         },
     },
 )

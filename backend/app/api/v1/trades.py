@@ -17,13 +17,15 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
 from app.core.exceptions import NotFoundException
 from app.core.permissions import reject_viewer_write
+from app.core.rate_limit import rate_limit
 from app.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse
 from app.schemas.trade import (
@@ -107,8 +109,10 @@ async def list_trades(
 
 
 @router.post("", summary="手动创建交易记录")
+@rate_limit(settings.RATE_LIMIT_TRADE_PER_MIN)
 async def create_trade(
     data: TradeCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

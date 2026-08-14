@@ -29,7 +29,7 @@ def _key_func(request: Request) -> Optional[str]:
     return f"ip:{get_remote_address(request)}"
 
 
-limiter = Limiter(key_func=_key, enabled=_enabled())
+limiter = Limiter(key_func=_key_func, enabled=_enabled())
 
 
 def rate_limit(per_minute: int):

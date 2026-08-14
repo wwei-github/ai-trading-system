@@ -23,7 +23,9 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.core.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import rate_limit
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -50,7 +52,8 @@ router = APIRouter(prefix="/auth", tags=["鉴权"])
 
 
 @router.post("/register", response_model=dict, summary="注册")
-async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+@rate_limit(settings.RATE_LIMIT_LOGIN_PER_MIN)
+async def register(data: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
     user = await auth_service.register(db, data)
     await db.commit()
     return success({"user_id": str(user.id), "email": user.email}, "注册成功，请查收邮箱验证码")
@@ -64,8 +67,9 @@ async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_
 
 
 @router.post("/resend-verification", response_model=dict, summary="重发邮箱验证码")
+@rate_limit(settings.RATE_LIMIT_LOGIN_PER_MIN)
 async def resend_verification(
-    data: ResendVerificationRequest, db: AsyncSession = Depends(get_db)
+    data: ResendVerificationRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
     await auth_service.resend_verification(db, data)
     await db.commit()
@@ -73,6 +77,7 @@ async def resend_verification(
 
 
 @router.post("/login", response_model=dict, summary="登录")
+@rate_limit(settings.RATE_LIMIT_LOGIN_PER_MIN)
 async def login(
     data: LoginRequest,
     request: Request,
@@ -101,8 +106,9 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/forgot-password/send", response_model=dict, summary="发送密码找回验证码")
+@rate_limit(settings.RATE_LIMIT_LOGIN_PER_MIN)
 async def forgot_password_send(
-    data: ForgotPasswordSendRequest, db: AsyncSession = Depends(get_db)
+    data: ForgotPasswordSendRequest, request: Request, db: AsyncSession = Depends(get_db)
 ):
     await auth_service.forgot_password_send(db, data)
     await db.commit()

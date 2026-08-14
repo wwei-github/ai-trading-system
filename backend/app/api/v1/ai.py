@@ -4,12 +4,14 @@ import json
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
 from app.core.exceptions import NotFoundException
+from app.core.rate_limit import rate_limit
 from app.models.user import User
 from app.schemas.ai import (
     AIChatResponse,
@@ -136,9 +138,11 @@ async def list_messages(
 @router.post(
     "/conversations/{conversation_id}/messages", summary="发送消息"
 )
+@rate_limit(settings.RATE_LIMIT_AI_PER_MIN)
 async def send_message(
     conversation_id: uuid.UUID,
     data: AIMessageCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -167,9 +171,11 @@ async def send_message(
 @router.post(
     "/conversations/{conversation_id}/stream", summary="流式对话"
 )
+@rate_limit(settings.RATE_LIMIT_AI_PER_MIN)
 async def stream_message(
     conversation_id: uuid.UUID,
     data: AIMessageCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -220,8 +226,10 @@ async def set_message_feedback(
 
 
 @router.post("/signals/generate", summary="生成交易信号", status_code=201)
+@rate_limit(settings.RATE_LIMIT_AI_PER_MIN)
 async def generate_signal(
     data: AISignalRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -282,8 +290,10 @@ async def mark_signal(
 
 
 @router.post("/reports/generate", summary="生成分析报告", status_code=201)
+@rate_limit(settings.RATE_LIMIT_AI_PER_MIN)
 async def generate_report(
     data: AIReportRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

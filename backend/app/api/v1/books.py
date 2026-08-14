@@ -7,12 +7,14 @@ RAG 问答、笔记管理、AI 知识提取接口。
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
 from app.core.exceptions import NotFoundException
 from app.core.permissions import reject_viewer_write
+from app.core.rate_limit import rate_limit
 from app.models.user import User
 from app.schemas.book import (
     BookChapterResponse,
@@ -76,7 +78,9 @@ async def create_book(
 
 
 @router.post("/upload", summary="上传书籍文件", status_code=201)
+@rate_limit(settings.RATE_LIMIT_UPLOAD_PER_MIN)
 async def upload_book(
+    request: Request,
     file: UploadFile = File(..., description="书籍文件 (pdf/epub/txt)"),
     title: Optional[str] = Form(None, description="书名（可选，默认使用文件名）"),
     author: Optional[str] = Form(None, description="作者"),

@@ -9,15 +9,17 @@ import json
 import uuid
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
 from app.core.database import redis_client
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.permissions import reject_viewer_write
+from app.core.rate_limit import rate_limit
 from app.models.user import User
 from app.schemas.common import ApiResponse
 from app.schemas.strategy import (
@@ -549,8 +551,10 @@ async def stop_live_trading(
     "/live-trading/orders/{order_id}/confirm",
     summary="确认实盘信号订单",
 )
+@rate_limit(settings.RATE_LIMIT_TRADE_PER_MIN)
 async def confirm_live_order(
     order_id: uuid.UUID,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
