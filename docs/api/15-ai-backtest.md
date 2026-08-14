@@ -1,7 +1,7 @@
 # 15-AI 回测接口文档
 
 > 模块：AI 驱动策略回测
-> 对齐方案：`docs/backend/06-AI驱动策略回测模式后端技术方案.md`
+> 对齐方案：`docs/backend/07-AI回测增强与终止后端技术方案.md`
 > Base URL：`/api/v1/strategies/ai-backtest`
 
 ---
@@ -14,7 +14,10 @@
 4. [获取交易明细](#4-获取交易明细)
 5. [SSE 进度推送](#5-sse-进度推送)
 6. [取消回测](#6-取消回测)
-7. [数据模型](#7-数据模型)
+7. [终止运行中回测](#7-终止运行中回测)
+8. [回测结果 AI 分析](#8-回测结果-ai-分析)
+9. [策略优化](#9-策略优化)
+10. [数据模型](#10-数据模型)
 
 ---
 
@@ -210,6 +213,14 @@ GET /strategies/ai-backtest/{backtest_id}
       "close_reasons": {
         "AI 决策平仓": 12,
         "止损": 6
+      },
+      "ai_analysis": {
+        "overall_assessment": "策略表现良好...",
+        "strengths": ["趋势跟踪准确"],
+        "weaknesses": ["震荡行情频繁开仓"],
+        "market_adaptability": { "trend_market": "优秀", "range_market": "一般", "volatile_market": "较差" },
+        "improvement_suggestions": ["建议增加震荡过滤器"],
+        "score": 72
       }
     },
     "created_at": "2026-08-14T10:49:00Z"
@@ -237,6 +248,7 @@ GET /strategies/ai-backtest/{backtest_id}
 | ai_calls | int | AI 调用次数 |
 | open_count | int | 开仓次数 |
 | close_reasons | object | 平仓原因分布 |
+| ai_analysis | object | AI 分析结果（可选） |
 
 ---
 
@@ -319,7 +331,7 @@ SSE（Server-Sent Events）流式推送回测进度。
 ```
 data: {"backtest_id":"UUID","stage":"preheat","progress":2,"current_kline":0,"total_klines":500,"current_trades":0,"current_position":null,"message":"正在获取预热数据..."}
 
-data: {"backtest_id":"UUID","stage":"running","progress":50,"current_kline":250,"total_klines":500,"current_trades":5,"current_position":{"direction":"long","entry_price":61200.50,"quantity":0.049,"unrealized_pnl":45.20},"message":"正在推进第 250/500 根 K 线"}
+data: {"backtest_id":"UUID","stage":"running","progress":50,"current_kline":250,"total_klines":500,"current_trades":5,"current_position":{"direction":"long","entry_price":61200.50,"quantity":0.049,"unrealized_pnl":45.20},"ai_analysis":{"trend":"bullish","strength":4,"summary":"多头趋势明确","decision":"hold","confidence":4,"reason":"均线多头排列"},"indicators":{"ma5":61500,"ma10":61000,"rsi_14":62},"message":"正在推进第 250/500 根 K 线"}
 
 data: {"backtest_id":"UUID","stage":"summary","progress":98,"current_kline":500,"total_klines":500,"current_trades":18,"current_position":null,"message":"正在生成总结报告..."}
 
@@ -337,6 +349,23 @@ data: [DONE]
 | summary | 生成总结报告 | 95~98 |
 | done | 回测完成 | 100 |
 | error | 回测失败 | - |
+| cancelled | 用户终止 | - |
+
+**SSE payload 新增字段：**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| ai_analysis | object | 当前 K 线的 AI 分析结果（可选） |
+| ai_analysis.trend | string | 市场趋势：bullish/bearish/neutral |
+| ai_analysis.strength | int | 趋势强度 1-5 |
+| ai_analysis.summary | string | 分析摘要 |
+| ai_analysis.decision | string | 决策：open_long/open_short/close_long/close_short/hold |
+| ai_analysis.confidence | int | 置信度 1-5 |
+| ai_analysis.reason | string | 决策理由 |
+| indicators | object | 当前技术指标（可选） |
+| indicators.ma5 | float | MA5 |
+| indicators.ma10 | float | MA10 |
+| indicators.rsi_14 | float | RSI14 |
 
 **注意：**
 - 若回测已完成或失败，SSE 直接返回最终状态并立即结束
@@ -374,9 +403,156 @@ POST /strategies/ai-backtest/{backtest_id}/cancel
 
 ---
 
-## 7. 数据模型
+## 7. 终止运行中回测
 
-### 7.1 AIBacktest（ai_backtests 表）
+```
+POST /strategies/ai-backtest/{backtest_id}/stop
+```
+
+终止正在运行的 AI 回测。
+
+**鉴权：** Trader+
+
+**路径参数：**
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| backtest_id | UUID | 回测记录 ID |
+
+**处理流程：**
+1. 验证所有权 + 状态为 running
+2. 设置 Redis 停止标志 (TTL 3600s)
+3. 更新 DB 状态为 cancelling
+4. 返回 {status: "stopping"}
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "status": "stopping"
+  }
+}
+```
+
+**注意：**
+- 终止后，Celery Worker 会在下一根 K 线推进前检测到停止信号
+- 已完成的交易会保留，未完成的交易丢弃
+- 回测状态标记为 `cancelled`
+- 通过 SSE 推送 `stage: "cancelled"` 事件
+
+---
+
+## 8. 回测结果 AI 分析
+
+```
+POST /strategies/ai-backtest/{backtest_id}/analyze
+```
+
+对已完成的回测进行 AI 分析。
+
+**鉴权：** Trader+
+
+**路径参数：**
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| backtest_id | UUID | 回测记录 ID |
+
+**处理流程：**
+1. 验证所有权 + 状态为 completed
+2. 读取回测结果摘要 + 所有交易明细 + 策略规则
+3. 调用 LLM 进行分析
+4. 保存分析结果到 backtest.result_summary.ai_analysis
+5. 返回分析结果
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "overall_assessment": "策略表现良好，胜率65%，但最大回撤偏高...",
+    "strengths": ["趋势跟踪准确", "止损设置合理"],
+    "weaknesses": ["震荡行情中频繁开仓", "止盈设置偏保守"],
+    "market_adaptability": {
+      "trend_market": "优秀",
+      "range_market": "一般",
+      "volatile_market": "较差"
+    },
+    "improvement_suggestions": [
+      "建议增加震荡行情过滤器",
+      "建议上调止盈目标至 1:2 盈亏比",
+      "建议在 RSI<30 时加仓"
+    ],
+    "score": 72
+  }
+}
+```
+
+---
+
+## 9. 策略优化
+
+```
+POST /strategies/ai-backtest/{backtest_id}/optimize
+```
+
+基于回测结果生成新的优化策略。
+
+**鉴权：** Trader+
+
+**路径参数：**
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| backtest_id | UUID | 回测记录 ID |
+
+**前置条件：** 必须先调用 AI 分析（`/analyze`）成功
+
+**处理流程：**
+1. 验证所有权 + 状态为 completed
+2. 读取回测结果 + 已有 AI 分析 + 原策略规则
+3. 调用 LLM 生成优化后的策略规则
+4. 创建新策略记录（名称: "原策略名 - 优化版 vN"）
+5. 在新策略 extra 记录 source_backtest_id
+6. 返回新策略详情
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "id": "UUID",
+    "name": "移动均线策略 - 优化版 v1",
+    "rules": {
+      "category": "technical",
+      "entry_rules": [
+        { "condition": "MA5 > MA10 且 RSI < 70", "params": {} }
+      ],
+      "exit_rules": [
+        { "condition": "MA5 < MA10 或止损", "params": {} }
+      ],
+      "position_sizing": { "method": "fixed_percent", "base_percent": 30 },
+      "risk_control": { "max_drawdown_pct": 15, "max_position_risk_pct": 2 },
+      "prerequisites": {
+        "single_position": { "enabled": true, "description": "单仓规则" },
+        "mandatory_stop_loss": { "enabled": true, "default_stop_loss_pct": 3 },
+        "strict_execution": { "enabled": true, "description": "严格执规" }
+      },
+      "optimization_notes": "优化说明"
+    }
+  }
+}
+```
+
+---
+
+## 10. 数据模型
+
+### 10.1 AIBacktest（ai_backtests 表）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -396,14 +572,14 @@ POST /strategies/ai-backtest/{backtest_id}/cancel
 | use_ai | BOOLEAN | 是否启用 AI 决策，默认 true |
 | total_klines | INTEGER | 总 K 线数 |
 | completed_klines | INTEGER | 已推进 K 线数 |
-| status | VARCHAR(20) | pending / running / completed / failed |
-| result_summary | JSONB | 回测总结指标 |
+| status | VARCHAR(20) | pending / running / completed / failed / cancelling / cancelled |
+| result_summary | JSONB | 回测总结指标（含 ai_analysis） |
 | started_at | TIMESTAMPTZ | 开始执行时间 |
 | completed_at | TIMESTAMPTZ | 完成时间 |
 | created_at | TIMESTAMPTZ | 创建时间 |
 | updated_at | TIMESTAMPTZ | 更新时间 |
 
-### 7.2 AIBacktestTrade（ai_backtest_trades 表）
+### 10.2 AIBacktestTrade（ai_backtest_trades 表）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -430,3 +606,4 @@ POST /strategies/ai-backtest/{backtest_id}/cancel
 | fee | NUMERIC(20,4) | 手续费 |
 | extra | JSONB | 扩展字段 |
 | created_at | TIMESTAMPTZ | 创建时间 |
+| updated_at | TIMESTAMPTZ | 更新时间 |

@@ -24,6 +24,7 @@ from app.schemas.system import (
     AuditLogResponse,
     NotificationSettings,
     SystemConfigItemCreate,
+    SystemConfigItemResponse,
     SystemConfigItemUpdate,
     SystemConfigResponse,
     UserCreate,
@@ -294,3 +295,31 @@ class SystemService:
         await self.db.delete(item)
         await self.db.flush()
         return True
+
+    async def create_config(self, data: SystemConfigItemCreate) -> SystemConfigItemResponse:
+        """创建系统配置项（新建模式）。"""
+        config = SystemConfig(
+            category=data.category,
+            key=data.key,
+            value=data.value,
+            description=data.description,
+        )
+        self.db.add(config)
+        await self.db.flush()
+        return SystemConfigItemResponse.model_validate(config)
+
+    async def update_config(
+        self, config_id: uuid.UUID, data: SystemConfigItemUpdate
+    ) -> SystemConfigItemResponse:
+        """更新系统配置项（使用 ID 定位）。"""
+        result = await self.db.execute(
+            select(SystemConfig).where(SystemConfig.id == config_id)
+        )
+        config = result.scalar_one_or_none()
+        if not config:
+            raise NotFoundException(message="配置项不存在")
+        config.value = data.value
+        if data.description is not None:
+            config.description = data.description
+        await self.db.flush()
+        return SystemConfigItemResponse.model_validate(config)

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db, get_pagination
 from app.core.config import settings
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.permissions import require_roles
 from app.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
@@ -233,6 +233,45 @@ async def delete_config_item(
             detail={"category": category, "key": key},
         )
     return ApiResponse(data={"deleted": True})
+
+
+# ---------- AI Provider 管理（独立路由，区分新建和编辑） ----------
+
+
+@router.post(
+    "/configs/ai",
+    summary="新建 AI Provider",
+    status_code=201,
+    dependencies=[Depends(require_roles("admin"))],
+)
+async def create_ai_provider(
+    data: SystemConfigItemCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """创建新的 AI Provider 配置。"""
+    service = SystemService(db)
+    if data.category != "ai":
+        raise BadRequestException(message="AI Provider 配置分类必须为 ai")
+    result = await service.create_config(data)
+    return ApiResponse(data=result)
+
+
+@router.put(
+    "/configs/ai/{config_id}",
+    summary="编辑 AI Provider",
+    dependencies=[Depends(require_roles("admin"))],
+)
+async def update_ai_provider(
+    config_id: uuid.UUID,
+    data: SystemConfigItemUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新已有 AI Provider 配置。"""
+    service = SystemService(db)
+    result = await service.update_config(config_id, data)
+    return ApiResponse(data=result)
 
 
 # ---------- 通知设置 ----------

@@ -56,6 +56,20 @@ class AIBacktestContext:
         self.preheat_count = PREHEAT_COUNT
 
 
+def _check_stop_signal(backtest_id: str) -> bool:
+    """检查是否收到停止信号。"""
+    try:
+        from app.core.config import settings
+        import redis as sync_redis
+        r = sync_redis.from_url(settings.REDIS_URL)
+        stop_key = f"stop:ai-backtest:{backtest_id}"
+        result = r.get(stop_key)
+        r.close()
+        return result is not None
+    except Exception:
+        return False
+
+
 @celery_app.task(bind=True, max_retries=0, acks_late=True)
 def run_ai_backtest(self, backtest_id: str):
     """执行 AI 回测（核心入口）。"""
@@ -143,6 +157,16 @@ async def _run_backtest_async(backtest_id: str):
 
         for idx, kline in enumerate(backtest_klines):
             ctx.current_kline_index = idx + 1
+
+            # === 停止信号检查 ===
+            if _check_stop_signal(backtest_id):
+                logger.info(f"AI backtest {backtest_id} received stop signal at kline {idx+1}")
+                _publish_progress(backtest_id, "cancelled", 5 + int((idx + 1) / ctx.total_klines * 90),
+                                  idx + 1, ctx.total_klines, ctx.total_trades,
+                                  message="回测已被用户终止")
+                await _save_trades_and_finalize(backtest_id, ctx, local_session_maker, "cancelled")
+                return
+
             kline_data = ctx.all_klines[:ctx.preheat_count + idx + 1]
 
             # 计算技术指标
@@ -176,6 +200,18 @@ async def _run_backtest_async(backtest_id: str):
                         ctx.use_ai_real = False
                         logger.warning("AI 连续失败 3 次，降级为规则引擎")
 
+            # 提取 AI 分析摘要（用于 SSE 推送）
+            ai_analysis = None
+            if ai_result:
+                ai_analysis = {
+                    "trend": ai_result.get("market_analysis", {}).get("trend"),
+                    "strength": ai_result.get("market_analysis", {}).get("strength"),
+                    "summary": ai_result.get("market_analysis", {}).get("summary"),
+                    "decision": ai_result.get("decision"),
+                    "confidence": ai_result.get("trade_plan", {}).get("confidence"),
+                    "reason": ai_result.get("trade_plan", {}).get("reason"),
+                }
+
             # 执行决策
             executor.execute(kline, ai_result, indicators)
 
@@ -186,6 +222,12 @@ async def _run_backtest_async(backtest_id: str):
                     backtest_id, "running", progress,
                     idx + 1, ctx.total_klines, ctx.total_trades,
                     current_position=ctx.current_position,
+                    ai_analysis=ai_analysis,
+                    indicators={
+                        "ma5": indicators.get("ma5"),
+                        "ma10": indicators.get("ma10"),
+                        "rsi_14": indicators.get("rsi_14"),
+                    },
                     message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
                 )
 
@@ -194,53 +236,8 @@ async def _run_backtest_async(backtest_id: str):
                           ctx.total_trades, message="正在生成总结报告...")
         summary = _calculate_summary(ctx)
 
-        # 6. 保存交易记录到数据库（使用本地 session maker）
-        async with local_session_maker() as session:
-            backtest = (await session.execute(
-                select(AIBacktest).where(AIBacktest.id == backtest_id)
-            )).scalar_one()
-
-            # 保存交易明细
-            for t in ctx.completed_trades:
-                # 转换时间戳毫秒 -> datetime
-                _entry_time = t.get("entry_time")
-                if isinstance(_entry_time, (int, float)):
-                    _entry_time = datetime.fromtimestamp(_entry_time / 1000, tz=timezone.utc)
-                _exit_time = t.get("exit_time")
-                if isinstance(_exit_time, (int, float)):
-                    _exit_time = datetime.fromtimestamp(_exit_time / 1000, tz=timezone.utc)
-
-                trade = AIBacktestTrade(
-                    backtest_id=backtest.id,
-                    index=t["index"],
-                    direction=t["direction"],
-                    entry_time=_entry_time,
-                    entry_price=t["entry_price"],
-                    quantity=t["quantity"],
-                    open_ai_analysis=t.get("open_ai_analysis"),
-                    open_reason=t.get("open_reason"),
-                    open_confidence=t.get("open_confidence"),
-                    stop_loss=t.get("stop_loss"),
-                    take_profit=t.get("take_profit"),
-                    exit_time=_exit_time,
-                    exit_price=t.get("exit_price"),
-                    exit_reason=t.get("exit_reason"),
-                    exit_ai_analysis=t.get("exit_ai_analysis"),
-                    exit_confidence=t.get("exit_confidence"),
-                    holding_bars=t.get("holding_bars"),
-                    pnl=t.get("pnl"),
-                    pnl_pct=t.get("pnl_pct"),
-                    fee=t.get("fee"),
-                    extra=t.get("extra"),
-                )
-                session.add(trade)
-
-            # 更新回测记录
-            backtest.status = "completed"
-            backtest.completed_klines = ctx.total_klines
-            backtest.completed_at = datetime.now(timezone.utc)
-            backtest.result_summary = summary
-            await session.commit()
+        # 6. 保存交易记录并完成
+        await _save_trades_and_finalize(backtest_id, ctx, local_session_maker, "completed", summary)
 
         # 7. 推送完成事件
         _publish_progress(backtest_id, "done", 100, ctx.total_klines, ctx.total_klines,
@@ -267,12 +264,79 @@ async def _update_status_failed(backtest_id: str, error: str):
             await session.commit()
 
 
+async def _save_trades_and_finalize(
+    backtest_id: str, ctx: AIBacktestContext,
+    session_maker, status: str, summary: Optional[dict] = None,
+):
+    """保存已完成交易并更新回测状态（抽取为独立方法）。
+
+    用于正常完成和用户终止两种情况。
+    """
+    async with session_maker() as session:
+        from sqlalchemy import select
+        backtest = (await session.execute(
+            select(AIBacktest).where(AIBacktest.id == backtest_id)
+        )).scalar_one()
+
+        # 保存交易明细
+        for t in ctx.completed_trades:
+            _entry_time = t.get("entry_time")
+            if isinstance(_entry_time, (int, float)):
+                _entry_time = datetime.fromtimestamp(_entry_time / 1000, tz=timezone.utc)
+            _exit_time = t.get("exit_time")
+            if isinstance(_exit_time, (int, float)):
+                _exit_time = datetime.fromtimestamp(_exit_time / 1000, tz=timezone.utc)
+
+            trade = AIBacktestTrade(
+                backtest_id=backtest.id,
+                index=t["index"],
+                direction=t["direction"],
+                entry_time=_entry_time,
+                entry_price=t["entry_price"],
+                quantity=t["quantity"],
+                open_ai_analysis=t.get("open_ai_analysis"),
+                open_reason=t.get("open_reason"),
+                open_confidence=t.get("open_confidence"),
+                stop_loss=t.get("stop_loss"),
+                take_profit=t.get("take_profit"),
+                exit_time=_exit_time,
+                exit_price=t.get("exit_price"),
+                exit_reason=t.get("exit_reason"),
+                exit_ai_analysis=t.get("exit_ai_analysis"),
+                exit_confidence=t.get("exit_confidence"),
+                holding_bars=t.get("holding_bars"),
+                pnl=t.get("pnl"),
+                pnl_pct=t.get("pnl_pct"),
+                fee=t.get("fee"),
+                extra=t.get("extra"),
+            )
+            session.add(trade)
+
+        # 更新回测记录
+        backtest.status = status
+        backtest.completed_klines = ctx.current_kline_index
+        backtest.completed_at = datetime.now(timezone.utc)
+        if status == "completed" and summary:
+            backtest.result_summary = summary
+        elif status == "cancelled":
+            backtest.result_summary = {
+                "total_trades": len(ctx.completed_trades),
+                "total_pnl": sum(t["pnl"] for t in ctx.completed_trades) if ctx.completed_trades else 0,
+                "status": "cancelled",
+                "cancelled_at_kline": ctx.current_kline_index,
+                "message": "用户终止回测",
+            }
+        await session.commit()
+
+
 def _publish_progress(
     backtest_id: str, stage: str, progress: float,
     current_kline: int, total_klines: int, current_trades: int,
     current_position: Optional[dict] = None, message: str = "",
+    ai_analysis: Optional[dict] = None,
+    indicators: Optional[dict] = None,
 ):
-    """推送进度到 Redis Pub/Sub。
+    """推送进度到 Redis Pub/Sub（增加 AI 分析字段）。
 
     使用 settings.REDIS_URL 直接创建同步 Redis 连接，
     避免依赖模块级 async redis_client（Celery 子进程中可能不可用）。
@@ -291,6 +355,11 @@ def _publish_progress(
             "current_position": current_position,
             "message": message,
         }
+        if ai_analysis is not None:
+            payload["ai_analysis"] = ai_analysis
+        if indicators is not None:
+            payload["indicators"] = indicators
+
         channel = f"ai-backtest-progress:{backtest_id}"
         r = sync_redis.from_url(settings.REDIS_URL)
         r.publish(channel, json.dumps(payload, ensure_ascii=False))

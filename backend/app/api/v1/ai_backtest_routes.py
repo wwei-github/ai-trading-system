@@ -107,15 +107,24 @@ async def get_ai_backtest_progress(
 
         # 先推送当前状态
         backtest = await service.get_backtest(backtest_id, current_user.id)
-        if backtest.status in ("completed", "failed"):
+        if backtest.status in ("completed", "failed", "cancelled"):
+            stage_map = {
+                "completed": "done",
+                "failed": "error",
+                "cancelled": "cancelled",
+            }
             payload = {
                 "backtest_id": bt_id,
-                "stage": "done" if backtest.status == "completed" else "error",
+                "stage": stage_map.get(backtest.status, "error"),
                 "progress": backtest.progress,
                 "current_kline": backtest.completed_klines,
                 "total_klines": backtest.total_klines,
                 "current_trades": 0,
-                "message": "回测已" + ("完成" if backtest.status == "completed" else "失败"),
+                "message": "回测已" + (
+                    "完成" if backtest.status == "completed" else
+                    "失败" if backtest.status == "failed" else
+                    "取消"
+                ),
             }
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
@@ -141,7 +150,7 @@ async def get_ai_backtest_progress(
                     yield f"data: {msg.get('data')}\n\n"
                     try:
                         payload = json.loads(msg.get("data"))
-                        if payload.get("stage") in ("done", "error"):
+                        if payload.get("stage") in ("done", "error", "cancelled"):
                             break
                     except Exception:
                         pass
@@ -171,3 +180,60 @@ async def cancel_ai_backtest(
     service = AIBacktestService(db)
     await service.cancel_backtest(backtest_id, current_user.id)
     return ApiResponse(data={"status": "cancelled"})
+
+
+@router.post("/{backtest_id}/stop", summary="终止运行中的 AI 回测")
+async def stop_ai_backtest(
+    backtest_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """终止正在运行的 AI 回测。
+
+    1. 验证所有权 + 状态为 running
+    2. 设置 Redis 停止标志 (TTL 3600s)
+    3. 更新 DB 状态为 cancelling
+    4. 返回 {status: "stopping"}
+    """
+    service = AIBacktestService(db)
+    await service.stop_backtest(backtest_id, current_user.id)
+    return ApiResponse(data={"status": "stopping"})
+
+
+@router.post("/{backtest_id}/analyze", summary="AI 分析回测结果")
+async def analyze_ai_backtest(
+    backtest_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """对已完成的回测进行 AI 分析。
+
+    1. 验证所有权 + 状态为 completed
+    2. 读取回测结果摘要 + 所有交易明细 + 策略规则
+    3. 调用 LLM 进行分析
+    4. 保存分析结果到 backtest.result_summary.ai_analysis
+    5. 返回分析结果
+    """
+    service = AIBacktestService(db)
+    result = await service.analyze_results(backtest_id, current_user.id)
+    return ApiResponse(data=result)
+
+
+@router.post("/{backtest_id}/optimize", summary="基于回测结果优化策略")
+async def optimize_strategy(
+    backtest_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """基于回测结果生成新的优化策略。
+
+    1. 验证所有权 + 状态为 completed
+    2. 读取回测结果 + 已有 AI 分析 + 原策略规则
+    3. 调用 LLM 生成优化后的策略规则
+    4. 创建新策略记录 (名称: "原策略名 - 优化版 vN")
+    5. 在新策略 extra 记录 source_backtest_id
+    6. 返回新策略详情
+    """
+    service = AIBacktestService(db)
+    result = await service.optimize_strategy(backtest_id, current_user.id)
+    return ApiResponse(data=result)
