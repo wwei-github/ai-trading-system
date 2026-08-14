@@ -6,6 +6,7 @@
 from app.models.account import ExchangeAccount
 from app.models.ai import AIConversation, AIMessage
 from app.models.asset import AssetSnapshot
+from app.models.coin import Kline, Watchlist
 from app.models.audit import AuditLog
 from app.models.auth import (
     EmailVerificationCode,
@@ -29,6 +30,8 @@ __all__ = [
     "Trade",
     "TradeTag",
     "AssetSnapshot",
+    "Kline",
+    "Watchlist",
     "Strategy",
     "Backtest",
     "Book",
