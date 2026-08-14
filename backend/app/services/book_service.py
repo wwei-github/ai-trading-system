@@ -279,6 +279,62 @@ class BookService:
             "status": "parsing",
         }
 
+    async def trigger_reparse(self, book_id: uuid.UUID) -> dict:
+        """重新解析书籍内容（异步任务）。
+
+        与 trigger_parse 的区别：
+        1. 显式重置解析状态（即使已解析完成也重新解析）
+        2. 清除旧章节和知识块数据，确保完全重新生成
+        3. 适用于书籍内容已上传但解析失败，或需要重新提取的场景
+
+        Returns:
+            包含 task_id 和 status 的字典
+
+        Raises:
+            NotFoundException: 书籍不存在
+            BadRequestException: 文件路径为空
+        """
+        from sqlalchemy import delete
+
+        from app.models.book import BookChapter, KnowledgeChunk
+
+        book = await self.get_book(book_id)
+        if book is None:
+            raise NotFoundException(
+                message="书籍不存在", detail={"book_id": str(book_id)}
+            )
+        if not book.file_path:
+            raise BadRequestException(
+                message="书籍没有关联文件，无法解析",
+                detail={"book_id": str(book_id)},
+            )
+
+        # 先清除旧数据
+        await self.db.execute(
+            delete(BookChapter).where(BookChapter.book_id == book_id)
+        )
+        await self.db.execute(
+            delete(KnowledgeChunk).where(KnowledgeChunk.book_id == book_id)
+        )
+
+        # 重置解析状态
+        book.parse_status = "parsing"
+        book.parse_progress = 0
+        book.total_chapters = 0
+        book.total_chunks = 0
+        await self.db.flush()
+
+        # 异步派发解析任务
+        from app.tasks.book_tasks import parse_book
+
+        task = parse_book.delay(str(book_id))
+        return {
+            "book_id": str(book_id),
+            "task_id": task.id,
+            "status": "parsing",
+            "reparse": True,
+        }
+
     async def list_chunks(
         self, book_id: uuid.UUID, limit: Optional[int] = None
     ) -> List[KnowledgeChunk]:
@@ -807,3 +863,237 @@ class BookService:
         await self.db.delete(note)
         await self.db.flush()
         return True
+
+    # ---------- 书籍 AI 分析 + 完整交易系统生成（Stage 7.6） ----------
+
+    async def analyze_book(
+        self,
+        book_id: uuid.UUID,
+        data: "BookAnalyzeRequest",
+        user_id: uuid.UUID,
+    ) -> dict:
+        """用大模型深度分析整本书，并生成一个完整可运行的交易系统。
+
+        基于书籍全文内容（向量检索找到最相关片段），由 LLM 生成：
+        1. 书籍整体分析报告（Markdown）
+        2. 提取核心概念列表
+        3. 结构化的完整交易系统 DSL（可直接保存为策略）
+        4. 交易系统摘要
+
+        Args:
+            book_id: 书籍 ID
+            data: 分析请求（是否保存策略、策略名称、重点关注领域）
+            user_id: 当前用户 ID
+
+        Returns:
+            包含分析结果和（可选）保存的策略 ID 的字典
+
+        Raises:
+            NotFoundException: 书籍不存在
+            BadRequestException: 书籍未解析完成
+        """
+        from app.models.strategy import Strategy
+
+        book = await self.get_book(book_id)
+        if book is None:
+            raise NotFoundException(
+                message="书籍不存在", detail={"book_id": str(book_id)}
+            )
+
+        if book.parse_status != "completed":
+            raise BadRequestException(
+                message="书籍尚未解析完成，无法进行 AI 分析",
+                detail={
+                    "book_id": str(book_id),
+                    "parse_status": book.parse_status or "pending",
+                },
+            )
+
+        # 检索与交易系统、策略相关的内容
+        query_text = "交易系统 完整策略 入场出场 仓位管理 风险管理 核心规则 交易哲学"
+        if data.focus_areas:
+            query_text += " " + " ".join(data.focus_areas)
+
+        scored_chunks = await self.retrieve_relevant_chunks(
+            book_id, query_text, top_k=15
+        )
+        if not scored_chunks:
+            raise BadRequestException(
+                message="书中未找到与交易系统相关的内容",
+                detail={"book_id": str(book_id)},
+            )
+
+        # 拼接上下文
+        context_text = "\n\n".join(
+            f"【片段 {i+1}】{c.content}" for i, (c, _) in enumerate(scored_chunks)
+        )
+        source_chapters = sorted({
+            c.chapter_order for c, _ in scored_chunks if c.chapter_order
+        })
+
+        # 第一步：生成书籍整体分析 + 提取核心概念
+        analyze_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一位资深交易分析师。请基于以下交易书籍的内容片段，"
+                    "给出一份详细的分析报告，并提取本书的核心交易概念。\n\n"
+                    "分析报告要求：\n"
+                    "1. 本书的核心交易哲学是什么\n"
+                    "2. 作者的整体思路框架是什么\n"
+                    "3. 这是什么类型的交易策略（趋势/均值回归/套利/网格等）\n"
+                    "4. 适合什么样的市场和品种\n"
+                    "5. 本书的优势和潜在局限性是什么\n\n"
+                    "最后，请以 JSON 格式输出分析结果，结构如下：\n"
+                    "{\n"
+                    '  "book_analysis": "完整的分析报告（Markdown格式）",\n'
+                    '  "core_concepts": ["核心概念1", "核心概念2", ...]\n'
+                    "}\n\n"
+                    f"书籍内容片段：\n{context_text[:12000]}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "请分析这本书并提取核心概念。",
+            },
+        ]
+
+        analyze_raw = await self.llm.chat(analyze_messages, temperature=0.3)
+
+        # 解析 JSON 结果
+        import json
+        start = analyze_raw.find("{")
+        end = analyze_raw.rfind("}") + 1
+        analyzed = {}
+        try:
+            if start >= 0 and end > start:
+                analyzed = json.loads(analyze_raw[start:end])
+            else:
+                analyzed = {
+                    "book_analysis": analyze_raw,
+                    "core_concepts": [],
+                }
+        except json.JSONDecodeError:
+            analyzed = {
+                "book_analysis": analyze_raw,
+                "core_concepts": [],
+            }
+
+        book_analysis = analyzed.get("book_analysis", analyze_raw)
+        core_concepts = analyzed.get("core_concepts", [])
+
+        # 第二步：生成完整的结构化交易系统 DSL
+        system_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一位量化交易策略工程师。请基于以上交易书籍的分析和内容片段，"
+                    "生成一个完整的、可在系统中运行的交易系统。\n\n"
+                    "请按照以下 JSON 结构输出交易系统，每个字段都必须填写：\n"
+                    "{\n"
+                    '  "name": "策略名称（从书名和核心概念自动生成）",\n'
+                    '  "category": "策略类别（trend/mean_reversion/grid/arbitrage/statistical/momentum/volatility 等）",\n'
+                    '  "description": "策略的完整描述",\n'
+                    '  "entry_rules": [\n'
+                    "    {\n"
+                    '      "logic": "AND/OR",\n'
+                    '      "conditions": [\n'
+                    '        {"indicator": "指标名", "operator": "比较符", "value": "阈值", "description": "说明"}\n'
+                    "      ]\n"
+                    "    }\n"
+                    "  ],\n"
+                    '  "exit_rules": [\n'
+                    "    同 entry_rules 格式\n"
+                    "  ],\n"
+                    '  "position_sizing": {\n'
+                    '    "method": "fixed_fraction/kelly/custom",\n'
+                    '    "fraction": 0.1,\n'
+                    '    "description": "仓位规则说明"\n'
+                    "  },\n"
+                    '  "risk_control": {\n'
+                    '    "stop_loss_pct": 0.05,\n'
+                    '    "take_profit_pct": 0.15,\n'
+                    '    "max_drawdown_pct": 0.2,\n'
+                    '    "description": "风控规则说明"\n'
+                    "  },\n"
+                    '  "params": {},\n'
+                    '  "symbol": "BTC-USDT",\n'
+                    '  "timeframe": "1h"\n'
+                    "}\n\n"
+                    "请确保输出是合法的 JSON，不要添加额外文字说明。"
+                    "规则条件中 value 可以保留文本描述，系统会支持自定义规则。\n\n"
+                    f"书籍分析：{book_analysis}\n\n"
+                    f"核心概念：{', '.join(core_concepts)}\n\n"
+                    f"原文片段供参考：{context_text[:6000]}"
+                ),
+            },
+            {
+                "role": "user",
+                "content": "请生成完整的交易系统 JSON。",
+            },
+        ]
+
+        system_raw = await self.llm.chat(system_messages, temperature=0.3)
+
+        # 解析 JSON
+        start = system_raw.find("{")
+        end = system_raw.rfind("}") + 1
+        trading_system = {}
+        system_summary = ""
+        try:
+            if start >= 0 and end > start:
+                trading_system = json.loads(system_raw[start:end])
+            else:
+                trading_system = {
+                    "name": book.title,
+                    "category": "custom",
+                    "description": book_analysis[:500],
+                    "entry_rules": [],
+                    "exit_rules": [],
+                    "position_sizing": {"method": "fixed_fraction", "fraction": 0.1},
+                    "risk_control": {"stop_loss_pct": 0.05, "take_profit_pct": 0.15, "max_drawdown_pct": 0.2},
+                }
+                system_summary = system_raw
+        except json.JSONDecodeError:
+            trading_system = {
+                "name": book.title,
+                "category": "custom",
+                "description": book_analysis[:500],
+                "entry_rules": [],
+                "exit_rules": [],
+                "position_sizing": {"method": "fixed_fraction", "fraction": 0.1},
+                "risk_control": {"stop_loss_pct": 0.05, "take_profit_pct": 0.15, "max_drawdown_pct": 0.2},
+            }
+            system_summary = system_raw
+
+        if not system_summary:
+            system_summary = trading_system.get("description", "")
+
+        # 自动生成策略名称（若用户未提供）
+        strategy_name = data.strategy_name or trading_system.get("name") or f"{book.title} - AI生成"
+
+        # 可选：保存为策略
+        saved_strategy_id = None
+        if data.save_strategy:
+            strategy = Strategy(
+                user_id=user_id,
+                name=strategy_name,
+                category=trading_system.get("category", "custom"),
+                description=system_summary or book_analysis[:200],
+                rules=trading_system,
+                params=trading_system.get("params", {}),
+                source_book_id=book_id,
+                status="draft",
+            )
+            self.db.add(strategy)
+            await self.db.flush()
+            saved_strategy_id = strategy.id
+
+        return {
+            "book_analysis": book_analysis,
+            "core_concepts": core_concepts,
+            "trading_system": trading_system,
+            "system_summary": system_summary,
+            "saved_strategy_id": saved_strategy_id,
+            "source_chapters": source_chapters,
+        }

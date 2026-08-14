@@ -12,12 +12,14 @@
 2. [文件上传](#2-文件上传)
 3. [阅读进度](#3-阅读进度)
 4. [内容解析](#4-内容解析)
-5. [章节管理](#5-章节管理)
-6. [全文搜索](#6-全文搜索)
-7. [RAG 问答](#7-rag-问答)
-8. [AI 知识提取](#8-ai-知识提取)
-9. [笔记管理](#9-笔记管理)
-10. [数据模型](#10-数据模型)
+5. [重新解析](#5-重新解析)
+6. [章节管理](#6-章节管理)
+7. [全文搜索](#7-全文搜索)
+8. [RAG 问答](#8-rag-问答)
+9. [AI 知识提取](#9-ai-知识提取)
+10. [AI 书籍分析 + 交易系统生成](#10-ai-书籍分析--交易系统生成)
+11. [笔记管理](#11-笔记管理)
+12. [数据模型](#12-数据模型)
 
 ---
 
@@ -228,9 +230,39 @@ GET /books/{book_id}/parse/progress
 
 ---
 
-## 5. 章节管理
+## 5. 重新解析
 
-### 5.1 获取书籍目录
+### 5.1 重新解析书籍内容
+
+```
+POST /books/{book_id}/reparse
+```
+
+与 `POST /books/{book_id}/parse` 的区别：
+- 显式清除旧章节和知识块数据，确保完全重新生成
+- 重置解析进度和统计信息（`total_chapters`、`total_chunks` 归零）
+- 适用于解析失败后重试，或需要重新提取章节/知识块的场景
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "book_id": "uuid",
+    "task_id": "celery-task-id",
+    "status": "parsing",
+    "reparse": true
+  }
+}
+```
+
+---
+
+## 6. 章节管理
+
+### 6.1 获取书籍目录
 
 ```
 GET /books/{book_id}/chapters?include_content=false
@@ -282,7 +314,7 @@ GET /books/{book_id}/chapters?include_content=false
 }
 ```
 
-### 5.2 获取章节详情
+### 6.2 获取章节详情
 
 ```
 GET /books/{book_id}/chapters/{chapter_order}
@@ -292,9 +324,9 @@ GET /books/{book_id}/chapters/{chapter_order}
 
 ---
 
-## 6. 全文搜索
+## 7. 全文搜索
 
-### 6.1 书籍全文搜索
+### 7.1 书籍全文搜索
 
 ```
 POST /books/{book_id}/search
@@ -334,9 +366,9 @@ POST /books/{book_id}/search
 
 ---
 
-## 7. RAG 问答
+## 8. RAG 问答
 
-### 7.1 书籍 RAG 问答
+### 8.1 书籍 RAG 问答
 
 ```
 POST /books/{book_id}/qa
@@ -383,9 +415,9 @@ POST /books/{book_id}/qa
 
 ---
 
-## 8. AI 知识提取
+## 9. AI 知识提取
 
-### 8.1 提取交易策略知识
+### 9.1 提取交易策略知识
 
 ```
 POST /books/{book_id}/extract
@@ -466,9 +498,99 @@ POST /books/{book_id}/extract
 
 ---
 
-## 9. 笔记管理
+## 10. AI 书籍分析 + 交易系统生成
 
-### 9.1 获取笔记列表
+### 10.1 分析书籍并生成完整交易系统
+
+```
+POST /books/{book_id}/analyze
+```
+
+用大模型深度分析整本书，并生成一个完整可运行的交易系统。
+
+**前置条件：** 书籍 `parse_status` 必须为 `completed`。
+
+**两步流程：**
+1. **书籍分析** — LLM 分析书籍内容（交易哲学、策略框架、适用场景），提取核心概念
+2. **交易系统生成** — LLM 根据分析结果生成完整的结构化交易系统 DSL
+
+**请求体：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| save_strategy | bool | 否 | 是否自动保存为策略（默认 true） |
+| strategy_name | string | 否 | 策略名称（留空自动生成） |
+| focus_areas | string[] | 否 | 重点关注领域，如 `["趋势跟踪", "风险管理"]` |
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "book_analysis": "## 书籍分析报告\n\n### 核心交易哲学\n本书强调...",
+    "core_concepts": ["趋势跟踪", "均值回归", "仓位管理", "风险控制"],
+    "trading_system": {
+      "name": "双均线趋势跟踪系统",
+      "category": "trend",
+      "description": "基于快慢均线交叉的趋势跟踪策略",
+      "entry_rules": [
+        {
+          "logic": "AND",
+          "conditions": [
+            {"indicator": "MA", "operator": ">", "value": "MA20", "description": "快线上穿慢线"},
+            {"indicator": "volume", "operator": ">", "value": "MA(volume)*1.5", "description": "成交量放大"}
+          ]
+        }
+      ],
+      "exit_rules": [
+        {
+          "logic": "OR",
+          "conditions": [
+            {"indicator": "MA", "operator": "<", "value": "MA20", "description": "快线下穿慢线"},
+            {"indicator": "price", "operator": "<=", "value": "entry_price*0.95", "description": "止损 -5%"}
+          ]
+        }
+      ],
+      "position_sizing": {
+        "method": "fixed_fraction",
+        "fraction": 0.1,
+        "description": "每笔交易投入总资金的 10%"
+      },
+      "risk_control": {
+        "stop_loss_pct": 0.05,
+        "take_profit_pct": 0.15,
+        "max_drawdown_pct": 0.2,
+        "description": "止损 5%，止盈 15%，最大回撤 20%"
+      },
+      "params": {},
+      "symbol": "BTC-USDT",
+      "timeframe": "1h"
+    },
+    "system_summary": "基于快慢均线交叉的趋势跟踪策略...",
+    "saved_strategy_id": "uuid",
+    "source_chapters": [1, 3, 5, 7]
+  }
+}
+```
+
+**返回字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| book_analysis | string | 书籍整体分析报告（Markdown 格式） |
+| core_concepts | string[] | LLM 提取的核心交易概念列表 |
+| trading_system | object | 完整的结构化交易系统（兼容策略 DSL 格式） |
+| system_summary | string | 交易系统摘要 |
+| saved_strategy_id | UUID | 保存的策略 ID（若 `save_strategy=true`） |
+| source_chapters | int[] | 分析引用的来源章节序号列表 |
+
+---
+
+## 11. 笔记管理
+
+### 11.1 获取笔记列表
 
 ```
 GET /books/{book_id}/notes
@@ -497,7 +619,7 @@ GET /books/{book_id}/notes
 }
 ```
 
-### 9.2 创建笔记
+### 11.2 创建笔记
 
 ```
 POST /books/{book_id}/notes
@@ -513,7 +635,7 @@ POST /books/{book_id}/notes
 | content | string | 是 | 笔记内容 |
 | highlight_range | object | 否 | 高亮范围 `{"page": 10, "start": 100, "end": 200}` |
 
-### 9.3 更新笔记
+### 11.3 更新笔记
 
 ```
 PATCH /books/notes/{note_id}
@@ -526,7 +648,7 @@ PATCH /books/notes/{note_id}
 | content | string | 否 | 笔记内容 |
 | note_type | string | 否 | 笔记类型 |
 
-### 9.4 删除笔记
+### 11.4 删除笔记
 
 ```
 DELETE /books/notes/{note_id}
@@ -534,7 +656,7 @@ DELETE /books/notes/{note_id}
 
 ---
 
-## 10. 数据模型
+## 12. 数据模型
 
 ### Book（书籍）
 

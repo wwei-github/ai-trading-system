@@ -196,3 +196,39 @@ class KnowledgeExtractionResponse(BaseModel):
     source_chapters: List[int] = Field(
         default_factory=list, description="来源章节序号列表"
     )
+
+
+# ---------- 书籍 AI 分析 + 交易系统生成（Stage 7.6）----------
+
+
+class BookAnalyzeRequest(BaseModel):
+    """书籍 AI 分析请求。"""
+
+    save_strategy: bool = Field(
+        True, description="是否将生成的交易系统保存为策略"
+    )
+    strategy_name: Optional[str] = Field(
+        None, description="策略名称（留空自动生成）"
+    )
+    focus_areas: Optional[List[str]] = Field(
+        None, description="重点关注领域，如：['趋势跟踪', '风险管理', '仓位管理']"
+    )
+
+
+class BookAnalyzeResponse(BaseModel):
+    """书籍 AI 分析响应（完整分析 + 交易系统）。"""
+
+    book_analysis: str = Field(..., description="书籍整体分析报告（Markdown）")
+    core_concepts: List[str] = Field(
+        default_factory=list, description="核心交易概念"
+    )
+    trading_system: Dict[str, Any] = Field(
+        ..., description="完整的交易系统（结构化 JSON）"
+    )
+    system_summary: str = Field(..., description="交易系统摘要")
+    saved_strategy_id: Optional[uuid.UUID] = Field(
+        None, description="保存的策略 ID（若 save_strategy=True）"
+    )
+    source_chapters: List[int] = Field(
+        default_factory=list, description="来源章节序号列表"
+    )

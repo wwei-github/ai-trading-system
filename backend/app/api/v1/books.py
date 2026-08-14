@@ -17,6 +17,8 @@ from app.core.permissions import reject_viewer_write
 from app.core.rate_limit import rate_limit
 from app.models.user import User
 from app.schemas.book import (
+    BookAnalyzeRequest,
+    BookAnalyzeResponse,
     BookChapterResponse,
     BookChapterTOC,
     BookCreate,
@@ -193,6 +195,26 @@ async def parse_book(
     return ApiResponse(data=result)
 
 
+@router.post("/{book_id}/reparse", summary="重新解析书籍内容")
+async def reparse_book(
+    book_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """重新解析书籍内容（异步任务）。
+
+    与 `POST /{book_id}/parse` 的区别：
+    - 显式清除旧章节和知识块数据，确保完全重新生成
+    - 重置解析进度和统计信息
+    - 适用于解析失败后重试，或需要重新提取章节/知识块的场景
+
+    返回任务 ID 和 `reparse: true` 标记。
+    """
+    service = BookService(db)
+    result = await service.trigger_reparse(book_id)
+    return ApiResponse(data=result)
+
+
 @router.get(
     "/{book_id}/parse/progress", summary="查询解析进度"
 )
@@ -318,6 +340,52 @@ async def extract_knowledge(
     """
     service = BookService(db)
     result = await service.extract_knowledge(book_id, data)
+    return ApiResponse(data=result)
+
+
+# ---------- 书籍 AI 分析 + 交易系统生成（Stage 7.6）----------
+
+
+@router.post(
+    "/{book_id}/analyze", summary="AI 分析书籍并生成完整交易系统"
+)
+async def analyze_book(
+    book_id: uuid.UUID,
+    data: BookAnalyzeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """用大模型深度分析整本书籍，并生成一个完整可运行的交易系统。
+
+    两步流程：
+    1. LLM 分析书籍内容（交易哲学、策略框架、适用场景等）
+    2. LLM 根据分析结果生成完整的结构化交易系统 DSL
+
+    **请求体：**
+    | 字段 | 类型 | 必填 | 说明 |
+    |------|------|------|------|
+    | save_strategy | bool | 否 | 是否自动保存为策略（默认 true） |
+    | strategy_name | string | 否 | 策略名称（留空自动生成） |
+    | focus_areas | string[] | 否 | 重点关注领域 |
+
+    **返回结果：**
+    ```json
+    {
+      "code": 0,
+      "message": "ok",
+      "data": {
+        "book_analysis": "书籍分析报告（Markdown）",
+        "core_concepts": ["概念1", "概念2"],
+        "trading_system": { "name": "...", "entry_rules": [...], ... },
+        "system_summary": "交易系统摘要",
+        "saved_strategy_id": "uuid（若 save_strategy=true）",
+        "source_chapters": [1, 2, 3]
+      }
+    }
+    ```
+    """
+    service = BookService(db)
+    result = await service.analyze_book(book_id, data, current_user.id)
     return ApiResponse(data=result)
 
 
