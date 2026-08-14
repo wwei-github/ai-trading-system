@@ -341,24 +341,37 @@ async def _parse_book_async(book_id: str) -> dict:
             return {"book_id": book_id, "status": "failed", "reason": "file_not_found"}
 
         try:
-            # 发布进度辅助
-            async def publish_progress(stage: str, progress: int, message: str = ""):
+            # 更新阶段辅助函数
+            async def update_parse_stage(
+                stage: str, progress: int, description: str
+            ) -> None:
+                book.parse_stage = stage
                 book.parse_progress = progress
+                book.parse_stage_progress = progress
+                book.parse_stage_description = description
                 await session.flush()
                 if redis_client:
                     try:
                         import datetime as _dt
                         payload = json.dumps({
-                            "book_id": book_id, "stage": stage, "progress": progress,
-                            "message": message,
+                            "book_id": book_id,
+                            "status": book.parse_status,
+                            "progress": progress,
+                            "stage": stage,
+                            "stage_progress": progress,
+                            "stage_description": description,
+                            "total_chapters": book.total_chapters,
+                            "total_chunks": book.total_chunks,
+                            "parsed_chapters": book.parsed_chapters,
+                            "parsed_chunks": book.parsed_chunks,
                             "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
                         }, ensure_ascii=False)
-                        await redis_client.publish(f"book:progress:{book_id}", payload)
+                        await redis_client.publish(f"book:parse:progress:{book_id}", payload)
                     except Exception:
                         pass
 
-            # 1. 提取文本 + 章节
-            await publish_progress("extracting", 10, "提取文本和章节")
+            # 阶段 1: 文件解析
+            await update_parse_stage("file_parsing", 10, "正在解析文件格式")
             full_text, chapters = extract_text_and_chapters(
                 book.file_path, book.file_type or ""
             )
@@ -367,12 +380,11 @@ async def _parse_book_async(book_id: str) -> dict:
                 book_id, len(full_text), len(chapters),
             )
 
-            # 2. 清除旧章节和知识块
+            # 阶段 2: 清除旧数据并保存章节
+            await update_parse_stage("chunking", 20, "正在提取章节结构")
             await session.execute(delete(BookChapter).where(BookChapter.book_id == book_uuid))
             await session.execute(delete(KnowledgeChunk).where(KnowledgeChunk.book_id == book_uuid))
 
-            # 3. 保存章节
-            await publish_progress("chapters", 30, f"保存 {len(chapters)} 个章节")
             for ch in chapters:
                 chapter = BookChapter(
                     book_id=book_uuid,
@@ -387,41 +399,57 @@ async def _parse_book_async(book_id: str) -> dict:
                 session.add(chapter)
 
             book.total_chapters = len(chapters)
+            book.parsed_chapters = len(chapters)
             await session.flush()
 
-            # 4. 按章节分块
-            await publish_progress("chunking", 50, "切分知识块")
+            # 阶段 3: 分块处理
+            await update_parse_stage(
+                "embedding", 50,
+                f"正在分块处理（第 {len(chapters)}/{len(chapters)} 章）"
+            )
             all_chunks: List[Dict[str, Any]] = []
-            for ch in chapters:
+            for idx, ch in enumerate(chapters):
                 ch_chunks = split_into_chunks(
                     ch["content"], chapter_order=ch["chapter_order"]
                 )
                 all_chunks.extend(ch_chunks)
+                book.parsed_chunks = len(all_chunks)
+                if idx % 5 == 0:
+                    await update_parse_stage(
+                        "embedding",
+                        50 + int(20 * (idx + 1) / len(chapters)),
+                        f"正在分块处理（第 {idx+1}/{len(chapters)} 章）"
+                    )
 
             logger.info("切分为 {} 个知识块 | book_id={}", len(all_chunks), book_id)
 
-            # 5. 生成嵌入
-            await publish_progress("embedding", 70, "生成向量嵌入")
+            # 阶段 4: 生成向量嵌入
+            await update_parse_stage("knowledge", 80, "正在生成向量嵌入")
             await _generate_embeddings(all_chunks)
 
-            # 6. 保存知识块
-            await publish_progress("saving", 85, "保存知识块")
+            # 阶段 5: 保存知识块
+            await update_parse_stage("knowledge", 85, "正在保存知识块")
             service = BookService(session)
             saved = await service.save_chunks(book_uuid, all_chunks)
             book.total_chunks = saved
+            book.parsed_chunks = saved
 
-            # 7. 完成
+            # 完成
             book.parse_status = "completed"
             book.parse_progress = 100
+            book.parse_stage = "done"
+            book.parse_stage_progress = 100
             await session.commit()
 
-            await publish_progress("done", 100, f"解析完成：{len(chapters)} 章 / {saved} 块")
+            await update_parse_stage("done", 100, f"解析完成：{len(chapters)} 章 / {saved} 块")
             logger.info("书籍解析完成 | book_id={} chapters={} chunks={}", book_id, len(chapters), saved)
             return {"book_id": book_id, "status": "completed", "chapters": len(chapters), "chunks": saved}
 
         except Exception as e:
             logger.exception("书籍解析失败 | book_id={}", book_id)
             book.parse_status = "failed"
+            book.parse_stage = "failed"
+            book.parse_error_message = str(e)
             await session.commit()
             return {"book_id": book_id, "status": "failed", "reason": str(e)}
 

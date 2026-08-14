@@ -114,9 +114,9 @@ async def get_book(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取书籍详情。"""
+    """获取书籍详情（含关联策略统计）。"""
     service = BookService(db)
-    book = await service.get_book(book_id)
+    book = await service.get_book_with_strategy_count(book_id)
     if book is None:
         raise NotFoundException(
             message="书籍不存在", detail={"book_id": str(book_id)}
@@ -235,9 +235,97 @@ async def get_parse_progress(
             "book_id": str(book_id),
             "status": book.parse_status or "pending",
             "progress": book.parse_progress,
+            "stage": book.parse_stage,
+            "stage_progress": book.parse_stage_progress,
+            "stage_description": book.parse_stage_description,
             "total_chapters": book.total_chapters,
             "total_chunks": book.total_chunks,
+            "parsed_chapters": book.parsed_chapters,
+            "parsed_chunks": book.parsed_chunks,
+            "error_message": book.parse_error_message,
         }
+    )
+
+
+@router.get("/{book_id}/parse/stream", summary="SSE 解析进度推送")
+async def parse_progress_sse(
+    book_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """SSE 流式推送解析进度，替代轮询。
+
+    事件格式：`data: {"book_id": "...", "stage": "chunking", "progress": 50, ...}\\n\\n`
+    结束标记：`data: [DONE]\\n\\n`
+    """
+    import asyncio
+    import json
+
+    from fastapi.responses import StreamingResponse
+
+    from app.core.database import redis_client
+
+    bt_id = str(book_id)
+
+    async def event_generator():
+        if redis_client is None:
+            yield f"data: {json.dumps({'error': 'Redis 不可用'}, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        pubsub = redis_client.pubsub()
+        channel = f"book:parse:progress:{bt_id}"
+        await pubsub.subscribe(channel)
+
+        try:
+            # 先推送当前状态
+            service = BookService(db)
+            book = await service.get_book(book_id)
+            if book:
+                payload = {
+                    "book_id": bt_id,
+                    "status": book.parse_status or "pending",
+                    "progress": book.parse_progress,
+                    "stage": book.parse_stage or "pending",
+                    "stage_progress": book.parse_stage_progress,
+                    "stage_description": book.parse_stage_description or "",
+                    "total_chapters": book.total_chapters,
+                    "total_chunks": book.total_chunks,
+                    "parsed_chapters": book.parsed_chapters,
+                    "parsed_chunks": book.parsed_chunks,
+                    "error_message": book.parse_error_message,
+                }
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                if book.parse_status in ("completed", "failed"):
+                    yield "data: [DONE]\n\n"
+                    return
+
+            # 订阅实时更新
+            timeout = 600
+            start = asyncio.get_event_loop().time()
+            while True:
+                if asyncio.get_event_loop().time() - start > timeout:
+                    break
+                msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=5.0)
+                if msg is None:
+                    continue
+                if msg.get("type") == "message":
+                    yield f"data: {msg.get('data')}\n\n"
+                    try:
+                        payload = json.loads(msg.get("data"))
+                        if payload.get("status") in ("completed", "failed"):
+                            break
+                    except Exception:
+                        pass
+        finally:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -250,16 +338,26 @@ async def list_chapters(
     include_content: bool = Query(
         False, description="是否包含正文（默认仅目录）"
     ),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取书籍章节列表（默认仅目录导航，不含正文）。"""
+    """获取书籍章节列表（支持分页，默认仅目录导航，不含正文）。"""
     service = BookService(db)
-    chapters = await service.list_chapters(
-        book_id, include_content=include_content
+    chapters, total = await service.list_chapters_paginated(
+        book_id, include_content=include_content,
+        page=page, page_size=page_size,
     )
     schema = BookChapterResponse if include_content else BookChapterTOC
-    return ApiResponse(data=[schema.model_validate(c) for c in chapters])
+    return ApiResponse(
+        data={
+            "items": [schema.model_validate(c) for c in chapters],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+    )
 
 
 @router.get(
@@ -454,3 +552,29 @@ async def delete_note(
             message="笔记不存在", detail={"note_id": str(note_id)}
         )
     return ApiResponse(data={"deleted": True})
+
+
+# ---------- 书籍关联策略 ----------
+
+
+@router.get("/{book_id}/strategies", summary="获取书籍生成的策略列表")
+async def list_book_strategies(
+    book_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取从该书 AI 分析生成的策略列表。"""
+    from app.models.strategy import Strategy
+    from app.schemas.strategy import StrategyResponse
+
+    from sqlalchemy import select
+
+    result = await db.execute(
+        select(Strategy)
+        .where(Strategy.source_book_id == book_id)
+        .order_by(Strategy.created_at.desc())
+    )
+    strategies = list(result.scalars().all())
+    return ApiResponse(
+        data=[StrategyResponse.model_validate(s) for s in strategies]
+    )

@@ -197,6 +197,45 @@ class PaperTradeRequest(BaseModel):
     price: Optional[float] = None
 
 
+# ---------- 策略规则结构化编辑（P1） ----------
+
+
+class StrategyRuleCondition(BaseModel):
+    """策略规则条件。"""
+
+    indicator: str = Field(..., description="指标名，如 MA5、RSI、MACD")
+    operator: str = Field(..., description="比较符：gt/lt/gte/lte/eq/cross_above/cross_below/custom")
+    value: Any = Field(..., description="阈值或文本描述")
+    description: Optional[str] = None
+
+
+class StrategyRuleGroup(BaseModel):
+    """规则组（支持 AND/OR 逻辑）。"""
+
+    logic: str = Field("AND", description="AND / OR")
+    conditions: List[StrategyRuleCondition] = Field(default_factory=list)
+
+
+class StrategyRulesUpdate(BaseModel):
+    """策略规则更新请求（仅更新规则相关字段）。"""
+
+    entry_rules: Optional[List[StrategyRuleGroup]] = None
+    exit_rules: Optional[List[StrategyRuleGroup]] = None
+    position_sizing: Optional[Dict[str, Any]] = None
+    risk_control: Optional[Dict[str, Any]] = None
+    params: Optional[Dict[str, Any]] = None
+
+
+class StrategyDetailResponse(StrategyResponse):
+    """策略详情（含结构化规则字段）。"""
+
+    entry_rules: List[StrategyRuleGroup] = Field(default_factory=list)
+    exit_rules: List[StrategyRuleGroup] = Field(default_factory=list)
+    position_sizing: Dict[str, Any] = Field(default_factory=dict)
+    risk_control: Dict[str, Any] = Field(default_factory=dict)
+    params: Dict[str, Any] = Field(default_factory=dict)
+
+
 # ---------- 实盘交易 ----------
 
 

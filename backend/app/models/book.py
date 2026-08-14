@@ -61,6 +61,24 @@ class Book(Base):
     # 总知识块数
     total_chunks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # 解析阶段（file_parsing / chunking / embedding / knowledge / done / failed）
+    parse_stage: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+
+    # 当前阶段进度（0-100）
+    parse_stage_progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # 阶段描述文本
+    parse_stage_description: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    # 错误信息（解析失败时记录）
+    parse_error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # 已解析章节数（用于进度报告）
+    parsed_chapters: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # 已生成知识块数（用于进度报告）
+    parsed_chunks: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
 
 class BookChapter(Base):
     """书籍章节表（Stage 7.2，对齐 PRD §5.7.2 R2）。

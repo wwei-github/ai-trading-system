@@ -258,6 +258,47 @@ POST /books/{book_id}/reparse
 }
 ```
 
+### 4.3 SSE 解析进度推送（增强）
+
+```
+GET /books/{book_id}/parse/stream
+```
+
+**替代轮询**，通过 Server-Sent Events 实时推送解析进度。
+
+**事件数据格式：**
+
+```
+data: {
+  "book_id": "uuid",
+  "status": "parsing",
+  "progress": 45,
+  "stage": "chunking",
+  "stage_progress": 70,
+  "stage_description": "正在分块处理（第 3/5 章）",
+  "total_chapters": 8,
+  "total_chunks": 120,
+  "parsed_chapters": 3,
+  "parsed_chunks": 45,
+  "error_message": null
+}
+
+data: [DONE]
+```
+
+**新增字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `stage` | string | 当前阶段：`file_parsing` / `chunking` / `embedding` / `knowledge` / `done` / `failed` |
+| `stage_progress` | int | 当前阶段进度 0-100 |
+| `stage_description` | string | 人类可读的阶段描述 |
+| `parsed_chapters` | int | 已解析章节数 |
+| `parsed_chunks` | int | 已生成知识块数 |
+| `error_message` | string | 解析失败时记录错误信息 |
+
+推送由 Redis Pub/Sub 驱动，超时 10 分钟自动断开。超时断开后前端可回退到轮询方式。
+
 ---
 
 ## 6. 章节管理
@@ -265,30 +306,37 @@ POST /books/{book_id}/reparse
 ### 6.1 获取书籍目录
 
 ```
-GET /books/{book_id}/chapters?include_content=false
+GET /books/{book_id}/chapters?include_content=false&page=1&page_size=20
 ```
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | include_content | boolean | 否 | 是否包含正文（默认 false，仅返回目录） |
+| page | int | 否 | 页码（默认 1，≥1） |
+| page_size | int | 否 | 每页条数（默认 20，范围 1~100） |
 
-**返回结果（目录模式，不含正文）：**
+**返回结果（分页模式）：**
 
 ```json
 {
   "code": 0,
   "message": "ok",
-  "data": [
-    {
-      "id": "uuid",
-      "title": "第一章 蜡烛图基础",
-      "chapter_order": 1,
-      "page_start": 1,
-      "page_end": 25,
-      "char_count": 8500,
-      "level": 1
-    }
-  ]
+  "data": {
+    "items": [
+      {
+        "id": "uuid",
+        "title": "第一章 蜡烛图基础",
+        "chapter_order": 1,
+        "page_start": 1,
+        "page_end": 25,
+        "char_count": 8500,
+        "level": 1
+      }
+    ],
+    "total": 15,
+    "page": 1,
+    "page_size": 20
+  }
 }
 ```
 
@@ -588,9 +636,44 @@ POST /books/{book_id}/analyze
 
 ---
 
-## 11. 笔记管理
+## 11. 书籍关联策略
 
-### 11.1 获取笔记列表
+### 11.1 获取书籍生成的策略列表
+
+```
+GET /books/{book_id}/strategies
+```
+
+返回从该书 AI 分析生成的所有策略列表，按创建时间降序排列。
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": [
+    {
+      "id": "uuid",
+      "name": "双均线趋势跟踪系统",
+      "description": "基于快慢均线交叉的趋势跟踪策略",
+      "category": "trend",
+      "is_active": true,
+      "is_template": false,
+      "backtest_count": 1,
+      "created_at": "2026-08-14T10:00:00Z",
+      "updated_at": "2026-08-14T10:00:00Z",
+      "source_book_id": "uuid"
+    }
+  ]
+}
+```
+
+---
+
+## 13. 笔记管理
+
+### 13.1 获取笔记列表
 
 ```
 GET /books/{book_id}/notes
@@ -619,7 +702,7 @@ GET /books/{book_id}/notes
 }
 ```
 
-### 11.2 创建笔记
+### 13.2 创建笔记
 
 ```
 POST /books/{book_id}/notes
@@ -635,7 +718,7 @@ POST /books/{book_id}/notes
 | content | string | 是 | 笔记内容 |
 | highlight_range | object | 否 | 高亮范围 `{"page": 10, "start": 100, "end": 200}` |
 
-### 11.3 更新笔记
+### 13.3 更新笔记
 
 ```
 PATCH /books/notes/{note_id}
@@ -648,7 +731,7 @@ PATCH /books/notes/{note_id}
 | content | string | 否 | 笔记内容 |
 | note_type | string | 否 | 笔记类型 |
 
-### 11.4 删除笔记
+### 13.4 删除笔记
 
 ```
 DELETE /books/notes/{note_id}
@@ -656,7 +739,7 @@ DELETE /books/notes/{note_id}
 
 ---
 
-## 12. 数据模型
+## 14. 数据模型
 
 ### Book（书籍）
 
@@ -674,8 +757,15 @@ DELETE /books/notes/{note_id}
 | metadata | JSONB | 元数据 |
 | parse_status | string(20) | 解析状态：pending / parsing / completed / failed |
 | parse_progress | int | 解析进度 (0-100) |
+| **parse_stage** | string(30) | 当前解析阶段：`file_parsing` / `chunking` / `embedding` / `knowledge` / `done` / `failed` |
+| **parse_stage_progress** | int | 当前阶段进度 (0-100) |
+| **parse_stage_description** | string(200) | 阶段描述（人类可读） |
+| **parse_error_message** | text | 解析失败时记录错误信息 |
+| **parsed_chapters** | int | 已解析章节数（进度报告用） |
+| **parsed_chunks** | int | 已生成知识块数（进度报告用） |
 | total_chapters | int | 总章节数 |
 | total_chunks | int | 总知识块数 |
+| **strategy_count** | int | 关联策略数（AI分析生成） |
 
 ### BookChapter（章节）
 

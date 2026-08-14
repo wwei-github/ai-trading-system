@@ -51,8 +51,15 @@ class BookResponse(BookBase):
     metadata: Optional[Dict[str, Any]] = Field(None, alias="metadata_")
     parse_status: Optional[str] = None
     parse_progress: int = 0
+    parse_stage: Optional[str] = None
+    parse_stage_description: Optional[str] = None
+    parse_error_message: Optional[str] = None
+    parse_stage_progress: int = 0
+    parsed_chapters: int = 0
+    parsed_chunks: int = 0
     total_chapters: int = 0
     total_chunks: int = 0
+    strategy_count: int = 0
     created_at: datetime
     updated_at: datetime
 

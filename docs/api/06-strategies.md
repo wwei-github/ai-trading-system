@@ -10,13 +10,14 @@
 
 1. [策略 CRUD](#1-策略-crud)
 2. [策略克隆](#2-策略克隆)
-3. [回测管理](#3-回测管理)
-4. [回测对比](#4-回测对比)
-5. [模拟交易](#5-模拟交易)
-6. [实盘半自动交易](#6-实盘半自动交易)
-7. [SSE 实时推送](#7-sse-实时推送)
-8. [风控八阈值](#8-风控八阈值)
-9. [策略 DSL 结构](#9-策略-dsl-结构)
+3. [策略规则结构化编辑](#3-策略规则结构化编辑)
+4. [回测管理](#4-回测管理)
+5. [回测对比](#5-回测对比)
+6. [模拟交易](#6-模拟交易)
+7. [实盘半自动交易](#7-实盘半自动交易)
+8. [SSE 实时推送](#8-sse-实时推送)
+9. [风控八阈值](#9-风控八阈值)
+10. [策略 DSL 结构](#10-策略-dsl-结构)
 
 ---
 
@@ -118,9 +119,143 @@ POST /strategies/{strategy_id}/clone
 
 ---
 
-## 3. 回测管理
+## 3. 策略规则结构化编辑
 
-### 3.1 触发策略回测
+### 3.1 更新策略规则
+
+```
+PATCH /strategies/{strategy_id}/rules
+```
+
+结构化更新策略规则，支持独立更新入场/出场/仓位/风控等字段，**不覆盖其他字段**。
+
+**请求体：**
+
+```json
+{
+  "entry_rules": [
+    {
+      "logic": "AND",
+      "conditions": [
+        {
+          "indicator": "MA5",
+          "operator": "cross_above",
+          "value": "MA20",
+          "description": "金叉买入"
+        },
+        {
+          "indicator": "volume",
+          "operator": "gt",
+          "value": "1.5*MA(volume)",
+          "description": "成交量放大 50%"
+        }
+      ]
+    }
+  ],
+  "exit_rules": [
+    {
+      "logic": "OR",
+      "conditions": [
+        {
+          "indicator": "MA5",
+          "operator": "cross_below",
+          "value": "MA20",
+          "description": "死叉卖出"
+        }
+      ]
+    }
+  ],
+  "position_sizing": {
+    "method": "fixed_fraction",
+    "fraction": 0.1,
+    "max_positions": 3
+  },
+  "risk_control": {
+    "stop_loss_pct": 0.05,
+    "take_profit_pct": 0.15,
+    "max_drawdown_pct": 0.2
+  }
+}
+```
+
+**参数说明：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| entry_rules | StrategyRuleGroup[] | 否 | 入场规则组，每项含 logic + conditions |
+| exit_rules | StrategyRuleGroup[] | 否 | 出场规则组，同 entry_rules 结构 |
+| position_sizing | object | 否 | 仓位管理配置 |
+| risk_control | object | 否 | 风控配置 |
+| params | object | 否 | 其他策略参数 |
+
+**StrategyRuleCondition 结构：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| indicator | string | 指标名，如 `MA5`、`RSI`、`MACD` |
+| operator | string | 比较符：`gt`/`lt`/`gte`/`lte`/`eq`/`cross_above`/`cross_below`/`custom` |
+| value | any | 阈值或文本描述 |
+| description | string | 人类可读的描述 |
+
+**注意：** 内置模板策略（`is_template=true`）不可编辑，需先克隆。
+
+**返回结果：** 策略完整详情（含结构化规则字段）。
+
+### 3.2 获取策略完整详情
+
+```
+GET /strategies/{strategy_id}/detail
+```
+
+与 `GET /strategies/{strategy_id}` 的区别在于返回结果包含完整的结构化规则字段：
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "id": "uuid",
+    "name": "双均线策略",
+    "category": "trend",
+    "description": "基于快慢均线交叉的趋势追踪策略",
+    "entry_rules": [
+      {
+        "logic": "AND",
+        "conditions": [
+          {
+            "indicator": "MA5",
+            "operator": "cross_above",
+            "value": "MA20",
+            "description": "金叉买入"
+          }
+        ]
+      }
+    ],
+    "exit_rules": [],
+    "position_sizing": {
+      "method": "fixed_fraction",
+      "fraction": 0.1
+    },
+    "risk_control": {
+      "stop_loss_pct": 0.05,
+      "take_profit_pct": 0.15
+    },
+    "params": {},
+    "source_book_id": "uuid",
+    "is_template": false,
+    "created_at": "2026-08-14T10:00:00Z",
+    "updated_at": "2026-08-14T10:00:00Z"
+  }
+}
+```
+
+---
+
+## 4. 回测管理
+
+### 4.1 触发策略回测
 
 ```
 POST /strategies/{strategy_id}/backtest
@@ -139,13 +274,13 @@ POST /strategies/{strategy_id}/backtest
 
 **返回结果：** 回测记录（`status=pending`），通过 SSE 订阅进度。
 
-### 3.2 获取回测历史
+### 4.2 获取回测历史
 
 ```
 GET /strategies/{strategy_id}/backtests
 ```
 
-### 3.3 获取回测详情
+### 4.3 获取回测详情
 
 ```
 GET /strategies/backtests/{backtest_id}
@@ -202,7 +337,7 @@ GET /strategies/backtests/{backtest_id}
 }
 ```
 
-### 3.4 获取回测交易明细
+### 4.4 获取回测交易明细
 
 ```
 GET /strategies/backtests/{backtest_id}/trades?limit=100&offset=0
@@ -242,9 +377,9 @@ GET /strategies/backtests/{backtest_id}/trades?limit=100&offset=0
 
 ---
 
-## 4. 回测对比
+## 5. 回测对比
 
-### 4.1 对比两次回测
+### 5.1 对比两次回测
 
 ```
 POST /strategies/backtests/compare
@@ -283,9 +418,9 @@ POST /strategies/backtests/compare
 
 ---
 
-## 5. 模拟交易
+## 6. 模拟交易
 
-### 5.1 启动模拟交易
+### 6.1 启动模拟交易
 
 ```
 POST /strategies/paper-trading
@@ -302,13 +437,13 @@ POST /strategies/paper-trading
 
 > 每策略+每币种仅允许一个 running 状态的模拟账号。
 
-### 5.2 获取模拟交易列表
+### 6.2 获取模拟交易列表
 
 ```
 GET /strategies/paper-trading?status=running
 ```
 
-### 5.3 获取模拟交易详情
+### 6.3 获取模拟交易详情
 
 ```
 GET /strategies/paper-trading/{paper_account_id}
@@ -339,7 +474,7 @@ GET /strategies/paper-trading/{paper_account_id}
 }
 ```
 
-### 5.4 控制模拟交易
+### 6.4 控制模拟交易
 
 ```
 POST /strategies/paper-trading/{paper_account_id}/control
@@ -353,7 +488,7 @@ POST /strategies/paper-trading/{paper_account_id}/control
 }
 ```
 
-### 5.5 获取模拟交易记录
+### 6.5 获取模拟交易记录
 
 ```
 GET /strategies/paper-trading/{paper_account_id}/trades?limit=100&offset=0
@@ -361,9 +496,9 @@ GET /strategies/paper-trading/{paper_account_id}/trades?limit=100&offset=0
 
 ---
 
-## 6. 实盘半自动交易
+## 7. 实盘半自动交易
 
-### 6.1 启动实盘策略实例
+### 7.1 启动实盘策略实例
 
 ```
 POST /strategies/live-trading
@@ -378,21 +513,21 @@ POST /strategies/live-trading
 | symbol | string | 是 | 交易对 |
 | timeframe | string | 否 | K 线周期，默认 `1h` |
 | mode | string | 否 | 运行模式：`semi_auto`（默认）/ `full_auto`（V2） |
-| risk_params | object | 否 | 风控参数覆盖（见 §8） |
+| risk_params | object | 否 | 风控参数覆盖（见 §9） |
 
-### 6.2 获取实盘策略实例列表
+### 7.2 获取实盘策略实例列表
 
 ```
 GET /strategies/live-trading?status=running
 ```
 
-### 6.3 获取实盘策略实例详情
+### 7.3 获取实盘策略实例详情
 
 ```
 GET /strategies/live-trading/{instance_id}
 ```
 
-### 6.4 暂停 / 恢复 / 停止
+### 7.4 暂停 / 恢复 / 停止
 
 ```
 POST /strategies/live-trading/{instance_id}/pause
@@ -409,7 +544,7 @@ POST /strategies/live-trading/{instance_id}/stop
 }
 ```
 
-### 6.5 获取实盘信号订单
+### 7.5 获取实盘信号订单
 
 ```
 GET /strategies/live-trading/orders?instance_id=uuid&status=pending&limit=50&offset=0
@@ -422,7 +557,7 @@ GET /strategies/live-trading/orders?instance_id=uuid&status=pending&limit=50&off
 | limit | int | 默认 50 |
 | offset | int | 默认 0 |
 
-### 6.6 确认信号订单
+### 7.6 确认信号订单
 
 ```
 POST /strategies/live-trading/orders/{order_id}/confirm
@@ -456,7 +591,7 @@ POST /strategies/live-trading/orders/{order_id}/confirm
 }
 ```
 
-### 6.7 拒绝信号订单
+### 7.7 拒绝信号订单
 
 ```
 POST /strategies/live-trading/orders/{order_id}/reject
@@ -472,9 +607,9 @@ POST /strategies/live-trading/orders/{order_id}/reject
 
 ---
 
-## 7. SSE 实时推送
+## 8. SSE 实时推送
 
-### 7.1 回测进度 SSE
+### 8.1 回测进度 SSE
 
 ```
 GET /strategies/backtests/{backtest_id}/progress
@@ -492,7 +627,7 @@ data: [DONE]\n\n
 
 **stage 取值：** `connected` / `init` / `fetching` / `running` / `saving` / `done` / `error`
 
-### 7.2 模拟交易实时更新 SSE
+### 8.2 模拟交易实时更新 SSE
 
 ```
 GET /strategies/paper-trading/{paper_account_id}/stream
@@ -526,7 +661,7 @@ GET /strategies/paper-trading/{paper_account_id}/stream
 }
 ```
 
-### 7.3 实盘信号 SSE
+### 8.3 实盘信号 SSE
 
 ```
 GET /strategies/live-trading/{instance_id}/stream
@@ -551,7 +686,7 @@ GET /strategies/live-trading/{instance_id}/stream
 
 ---
 
-## 8. 风控八阈值
+## 9. 风控八阈值
 
 实盘下单前执行 8 项风控校验（对齐 PRD §9.2），任一不通过即拦截：
 
@@ -579,7 +714,7 @@ GET /strategies/live-trading/{instance_id}/stream
 
 ---
 
-## 9. 策略 DSL 结构
+## 10. 策略 DSL 结构
 
 策略规则使用结构化 DSL 定义，支持 3 层 AND/OR 条件嵌套：
 

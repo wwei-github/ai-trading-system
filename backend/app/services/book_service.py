@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.exceptions import BadRequestException, NotFoundException
 from app.models.book import Book, BookChapter, BookNote, KnowledgeChunk
+from app.models.strategy import Strategy
 from app.schemas.book import (
     BookCreate,
     BookNoteCreate,
@@ -102,14 +103,45 @@ class BookService:
         result = await self.db.execute(select(Book).where(Book.id == book_id))
         return result.scalar_one_or_none()
 
+    async def get_book_with_strategy_count(
+        self, book_id: uuid.UUID
+    ) -> Optional[Book]:
+        """获取书籍详情（含关联策略数）。"""
+        from sqlalchemy import func
+
+        book = await self.get_book(book_id)
+        if book is None:
+            return None
+        # 查询关联策略数并注入到动态属性
+        count_result = await self.db.execute(
+            select(func.count(Strategy.id)).where(
+                Strategy.source_book_id == book_id
+            )
+        )
+        book.strategy_count = count_result.scalar_one()  # type: ignore[attr-defined]
+        return book
+
     async def list_books(self, user_id: uuid.UUID) -> List[Book]:
-        """获取用户的全部书籍。"""
+        """获取用户的全部书籍（含关联策略数）。"""
         result = await self.db.execute(
             select(Book)
             .where(Book.user_id == user_id)
             .order_by(Book.created_at.desc())
         )
-        return list(result.scalars().all())
+        books = list(result.scalars().all())
+        # 批量查询关联策略数
+        if books:
+            from sqlalchemy import func
+            book_ids = [b.id for b in books]
+            count_results = await self.db.execute(
+                select(Strategy.source_book_id, func.count(Strategy.id))
+                .where(Strategy.source_book_id.in_(book_ids))
+                .group_by(Strategy.source_book_id)
+            )
+            strategy_counts = dict(count_results.all())
+            for b in books:
+                b.strategy_count = strategy_counts.get(b.id, 0)  # type: ignore[attr-defined]
+        return books
 
     async def update_book(
         self, book_id: uuid.UUID, data: BookUpdate
@@ -267,6 +299,12 @@ class BookService:
         # 更新状态
         book.parse_status = "parsing"
         book.parse_progress = 0
+        book.parse_stage = "file_parsing"
+        book.parse_stage_progress = 0
+        book.parse_stage_description = "准备解析..."
+        book.parse_error_message = None
+        book.parsed_chapters = 0
+        book.parsed_chunks = 0
         await self.db.flush()
 
         # 异步派发解析任务（延迟导入避免循环依赖）
@@ -320,8 +358,14 @@ class BookService:
         # 重置解析状态
         book.parse_status = "parsing"
         book.parse_progress = 0
+        book.parse_stage = "file_parsing"
+        book.parse_stage_progress = 0
+        book.parse_stage_description = "准备重新解析..."
+        book.parse_error_message = None
         book.total_chapters = 0
         book.total_chunks = 0
+        book.parsed_chapters = 0
+        book.parsed_chunks = 0
         await self.db.flush()
 
         # 异步派发解析任务
@@ -420,6 +464,47 @@ class BookService:
             )
         )
         return result.scalar_one_or_none()
+
+    async def list_chapters_paginated(
+        self, book_id: uuid.UUID, include_content: bool = False,
+        page: int = 1, page_size: int = 20,
+    ) -> Tuple[List[BookChapter], int]:
+        """分页获取章节列表。"""
+        from sqlalchemy import func as sa_func
+
+        # 获取总数
+        count_result = await self.db.execute(
+            select(sa_func.count(BookChapter.id))
+            .where(BookChapter.book_id == book_id)
+        )
+        total = count_result.scalar_one()
+
+        # 分页查询
+        stmt = (
+            select(BookChapter)
+            .where(BookChapter.book_id == book_id)
+            .order_by(BookChapter.chapter_order.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+        result = await self.db.execute(stmt)
+        chapters = list(result.scalars().all())
+
+        if not include_content:
+            for ch in chapters:
+                ch.content = ""  # type: ignore[assignment]
+        return chapters, total
+
+    async def get_book_strategies(
+        self, book_id: uuid.UUID
+    ) -> List[Strategy]:
+        """获取从该书生成的策略列表。"""
+        result = await self.db.execute(
+            select(Strategy)
+            .where(Strategy.source_book_id == book_id)
+            .order_by(Strategy.created_at.desc())
+        )
+        return list(result.scalars().all())
 
     # ---------- 全文搜索（Stage 7.4） ----------
 

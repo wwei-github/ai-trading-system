@@ -38,7 +38,9 @@ from app.schemas.strategy import (
     PaperTradingStartRequest,
     StrategyCloneRequest,
     StrategyCreate,
+    StrategyDetailResponse,
     StrategyResponse,
+    StrategyRulesUpdate,
     StrategyUpdate,
 )
 from app.services.strategy_service import StrategyService
@@ -784,6 +786,64 @@ async def clone_strategy(
         detail={"source_id": str(strategy_id), "new_name": cloned.name},
     )
     return ApiResponse(data=StrategyResponse.model_validate(cloned))
+
+
+@router.patch("/{strategy_id}/rules", summary="更新策略规则")
+async def update_strategy_rules(
+    strategy_id: uuid.UUID,
+    data: StrategyRulesUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """结构化更新策略规则（仅更新入场/出场/仓位/风控等独立字段）。
+
+    请求体示例：
+    ```json
+    {
+      "entry_rules": [
+        {
+          "logic": "AND",
+          "conditions": [
+            {
+              "indicator": "MA5",
+              "operator": "cross_above",
+              "value": "MA20",
+              "description": "金叉买入"
+            }
+          ]
+        }
+      ],
+      "exit_rules": [...],
+      "position_sizing": {...},
+      "risk_control": {...}
+    }
+    ```
+    """
+    service = StrategyService(db)
+    strategy = await service.update_strategy_rules(strategy_id, data)
+    if strategy is None:
+        raise NotFoundException(
+            message="策略不存在",
+            detail={"strategy_id": str(strategy_id)},
+        )
+    return ApiResponse(data=StrategyDetailResponse.model_validate(strategy))
+
+
+@router.get("/{strategy_id}/detail", summary="获取策略完整详情")
+async def get_strategy_detail(
+    strategy_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取策略完整详情（含结构化规则字段）。"""
+    service = StrategyService(db)
+    strategy = await service.get_strategy_detail(strategy_id)
+    if strategy is None:
+        raise NotFoundException(
+            message="策略不存在",
+            detail={"strategy_id": str(strategy_id)},
+        )
+    return ApiResponse(data=StrategyDetailResponse.model_validate(strategy))
 
 
 # =====================================================================

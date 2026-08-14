@@ -34,6 +34,7 @@ from app.schemas.strategy import (
     LiveTradeRequest,
     PaperTradeRequest,
     StrategyCreate,
+    StrategyRulesUpdate,
     StrategyUpdate,
 )
 from app.schemas.strategy_dsl import StrategyDSL
@@ -163,6 +164,40 @@ class StrategyService:
         self.db.add(cloned)
         await self.db.flush()
         return cloned
+
+    # ---------- 策略规则结构化编辑（P1） ----------
+
+    async def update_strategy_rules(
+        self, strategy_id: uuid.UUID, data: "StrategyRulesUpdate"
+    ) -> Optional[Strategy]:
+        """结构化更新策略规则（仅更新规则相关字段）。"""
+        strategy = await self.get_strategy(strategy_id)
+        if strategy is None:
+            return None
+
+        if strategy.is_template:
+            raise ForbiddenException(
+                message="内置模板策略不可编辑，请克隆后修改"
+            )
+
+        current_rules = strategy.rules or {}
+        update_data = data.model_dump(exclude_unset=True, exclude_none=True)
+
+        # 合并规则到 strategy.rules
+        for key in ("entry_rules", "exit_rules", "position_sizing", "risk_control", "params"):
+            if key in update_data:
+                current_rules[key] = update_data[key]
+
+        strategy.rules = current_rules
+        await self.db.flush()
+        return strategy
+
+    async def get_strategy_detail(
+        self, strategy_id: uuid.UUID
+    ) -> Optional[Strategy]:
+        """获取策略详情（含结构化规则字段）。"""
+        strategy = await self.get_strategy(strategy_id)
+        return strategy
 
     # ---------- 回测管理 ----------
 
