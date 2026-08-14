@@ -25,11 +25,15 @@ services:
       RUN_MODE: docker
       DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
+      # 交易所 API 代理：通过 tinyproxy 容器转发
+      EXCHANGE_PROXY: http://proxy:8888
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+      proxy:
+        condition: service_started
 
   # Celery Worker (复用 backend 镜像，覆盖启动命令)
   celery-worker:
@@ -43,6 +47,7 @@ services:
       RUN_MODE: docker
       DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
+      EXCHANGE_PROXY: http://proxy:8888
     depends_on:
       - redis
       - postgres
@@ -59,6 +64,7 @@ services:
       RUN_MODE: docker
       DATABASE_URL: postgresql+asyncpg://trading:trading@postgres:5432/trading
       REDIS_URL: redis://redis:6379/0
+      EXCHANGE_PROXY: http://proxy:8888
     depends_on:
       - redis
 
@@ -91,6 +97,23 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+# 交易所 API 代理（tinyproxy）
+  # 大陆用户访问 Binance 等境外交易所需配置此服务
+  proxy:
+    image: vimagick/tinyproxy:latest
+    ports:
+      - "18888:8888"
+    volumes:
+      - ./docker/tinyproxy.conf:/etc/tinyproxy/tinyproxy.conf
+    environment:
+      # 上游代理地址（可选，用户自有的 Shadowsocks/V2Ray/Clash 等）
+      # Docker 中 127.0.0.1 指向容器自身，如需访问宿主机代理：
+      #   macOS:   host.docker.internal:7890
+      #   Linux:   宿主机实际 IP 或 172.17.0.1
+      # 如果留空，tinyproxy 直连目标服务器（仅海外服务器可用）
+      UPSTREAM_PROXY: ${PROXY_UPSTREAM:-}
+    restart: unless-stopped
 
 volumes:
   pgdata:
