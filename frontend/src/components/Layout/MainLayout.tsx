@@ -1,13 +1,16 @@
 import { useMemo } from 'react';
-import { Layout, Menu, Select, message, Tag } from 'antd';
+import { Layout, Menu, Select, message } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   RobotOutlined,
+  CheckCircleFilled,
+  CloudOutlined,
+  LaptopOutlined,
 } from '@ant-design/icons';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAppStore } from '@/store';
 import { menuItems, APP_TITLE } from '@/utils/constants';
 import { aiProviderApi } from '@/api/ai-provider';
@@ -15,12 +18,18 @@ import type { ProviderListResponse } from '@/types';
 
 const { Header, Sider, Content } = Layout;
 
+const PROVIDER_TYPE_MAP: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+  ollama: { label: '本地', color: 'blue', icon: <LaptopOutlined /> },
+  openai_compatible: { label: '云端', color: 'green', icon: <CloudOutlined /> },
+};
+
 // 主布局：左侧菜单 + 顶栏 + 内容区
 const MainLayout = () => {
   const collapsed = useAppStore((state) => state.collapsed);
   const toggleCollapsed = useAppStore((state) => state.toggleCollapsed);
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
 
   // AI Provider 列表及当前激活
   const { data: providerData } = useQuery<ProviderListResponse>({
@@ -33,11 +42,13 @@ const MainLayout = () => {
     mutationFn: (id: string) => aiProviderApi.activateProvider(id),
     onSuccess: () => {
       message.success('AI Provider 切换成功');
+      queryClient.invalidateQueries({ queryKey: ['ai-providers'] });
     },
   });
 
   const providers = providerData?.providers || [];
   const activeProvider = providers.find((p) => p.id === providerData?.active_provider_id);
+  const typeInfo = activeProvider ? PROVIDER_TYPE_MAP[activeProvider.type] : null;
 
   // 当前选中的菜单项（取路由路径第一段匹配）
   const selectedKey = useMemo(() => {
@@ -80,35 +91,68 @@ const MainLayout = () => {
       </Sider>
       <Layout>
         <Header className="header">
-          <span className="trigger" onClick={toggleCollapsed}>
-            {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-          </span>
-          {/* 主题切换预留位 */}
-          <span className="header-right">
-            <span className="ai-provider-switch">
-              <RobotOutlined style={{ marginRight: 6, fontSize: 14 }} />
-              <Select
-                size="small"
-                value={activeProvider?.id || undefined}
-                loading={activateMutation.isPending}
-                onChange={(id) => activateMutation.mutate(id)}
-                placeholder="选择 AI Provider"
-                style={{ width: 160 }}
-                variant="borderless"
-                options={providers.map((p) => ({
-                  value: p.id,
-                  label: p.name,
-                }))}
-              />
-              {activeProvider && (
-                <Tag
-                  color={activeProvider?.provider_type === 'ollama' ? 'blue' : 'green'}
-                  style={{ marginLeft: 4, lineHeight: '18px', fontSize: 11 }}
-                >
-                  {activeProvider?.provider_type === 'ollama' ? '本地' : '云端'}
-                </Tag>
-              )}
+          <span className="header-left">
+            <span className="trigger" onClick={toggleCollapsed}>
+              {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             </span>
+            <span className="header-title">{APP_TITLE}</span>
+          </span>
+          <span className="header-right">
+            <div className="ai-provider-switch">
+              <div className="ai-provider-switch-inner">
+                <RobotOutlined className="ai-provider-icon" />
+                <div className="ai-provider-info">
+                  <span className="ai-provider-label">AI Provider</span>
+                  <span className="ai-provider-name">
+                    {activeProvider?.name || '未选择'}
+                  </span>
+                </div>
+                {typeInfo && (
+                  <span className="ai-provider-type-tag" data-color={typeInfo.color}>
+                    {typeInfo.icon}
+                    <span>{typeInfo.label}</span>
+                  </span>
+                )}
+                <Select
+                  value={activeProvider?.id || undefined}
+                  loading={activateMutation.isPending}
+                  onChange={(id) => activateMutation.mutate(id)}
+                  placeholder="选择 AI Provider"
+                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                  variant="borderless"
+                  popupMatchSelectWidth={260}
+                  getPopupContainer={() => document.body}
+                  labelRender={() => null}
+                  optionRender={(option) => {
+                    const p = providers.find((x) => x.id === option.value);
+                    if (!p) return option.label;
+                    const info = PROVIDER_TYPE_MAP[p.type] || PROVIDER_TYPE_MAP.openai_compatible;
+                    const isActive = p.id === activeProvider?.id;
+                    return (
+                      <div className="ai-provider-option">
+                        <div className="ai-provider-option-left">
+                          <span className={`ai-provider-option-dot ${info.color}`} />
+                          <div>
+                            <div className="ai-provider-option-name">
+                              {p.name}
+                              {isActive && <CheckCircleFilled className="ai-provider-option-check" />}
+                            </div>
+                            <div className="ai-provider-option-type">
+                              {info.icon} {info.label} · {p.config.model}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }}
+                  options={providers.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    disabled: p.id === activeProvider?.id,
+                  }))}
+                />
+              </div>
+            </div>
           </span>
         </Header>
         <Content className="content">

@@ -161,6 +161,8 @@ services:
       echo '服务端就绪，开始拉取...' &&
       ollama pull deepseek-r1:7b &&
       echo '✓ deepseek-r1:7b 拉取完成' &&
+      ollama pull qwen3.5:4b &&
+      echo '✓ qwen3.5:4b 拉取完成' &&
       ollama pull qwen3.5:9b &&
       echo '✓ qwen3.5:9b 拉取完成' &&
       ollama pull nomic-embed-text &&
