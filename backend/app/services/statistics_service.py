@@ -110,9 +110,13 @@ class StatisticsService:
     def _build_filters(
         self, user_id: uuid.UUID, params: StatisticsQueryParams
     ) -> List[Any]:
-        """构建 5 维过滤条件。"""
+        """构建 5 维过滤条件 + 来源过滤（只统计真实交易数据）。"""
         start, end = self._resolve_period_preset(params)
-        conditions: List[Any] = [Trade.user_id == user_id]
+        conditions: List[Any] = [
+            Trade.user_id == user_id,
+            # 只统计真实交易数据，排除模拟交易（paper）
+            Trade.source.in_(["exchange_sync", "manual", "import", "live"]),
+        ]
         if start:
             conditions.append(Trade.executed_at >= start)
         if end:
@@ -679,7 +683,10 @@ class StatisticsService:
         注意：5 维过滤中的 account_id/strategy_id/tags/symbol 维度仍生效，
         但忽略 user_id（admin 看所有用户）。
         """
-        conditions: List[Any] = []
+        conditions: List[Any] = [
+            # 只统计真实交易数据，排除模拟交易（paper）
+            Trade.source.in_(["exchange_sync", "manual", "import", "live"]),
+        ]
         if params.start_date:
             conditions.append(Trade.executed_at >= params.start_date)
         if params.end_date:
