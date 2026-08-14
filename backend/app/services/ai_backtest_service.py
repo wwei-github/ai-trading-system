@@ -40,13 +40,17 @@ class AIBacktestService:
     ) -> AIBacktestResponse:
         """创建并启动 AI 回测。"""
 
-        # 1. 并发控制：同一用户最多 3 个正在运行的回测
+        # 1. 验证 AI 回测必须启用 AI 分析
+        if not data.use_ai:
+            raise BadRequestException(message="AI 回测必须启用 AI 分析，请设置 use_ai=true")
+
+        # 2. 并发控制：同一用户最多 3 个正在运行的回测
         await self._check_concurrency_limit(user_id)
 
-        # 2. 验证策略存在且有效
+        # 3. 验证策略存在且有效
         strategy = await self._validate_strategy(data.strategy_id, user_id)
 
-        # 3. 计算总 K 线数
+        # 4. 计算总 K 线数
         total_klines = await self._calculate_total_klines(
             data.symbol, data.timeframe, data.start_time,
             data.mode, data.kline_count, data.time_span_value, data.time_span_unit,

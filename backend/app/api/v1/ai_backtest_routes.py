@@ -126,6 +126,18 @@ async def get_ai_backtest_progress(
                     "取消"
                 ),
             }
+            # 尝试从 Redis 读取最后一次推送的进度数据（包含 ai_analysis 和 indicators）
+            try:
+                last_key = f"ai-backtest-last-progress:{bt_id}"
+                last_data = await redis_client.get(last_key)
+                if last_data:
+                    last = json.loads(last_data)
+                    if last.get("ai_analysis"):
+                        payload["ai_analysis"] = last["ai_analysis"]
+                    if last.get("indicators"):
+                        payload["indicators"] = last["indicators"]
+            except Exception:
+                pass
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
             return

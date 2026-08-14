@@ -139,6 +139,20 @@ async def _run_backtest_async(backtest_id: str):
             }
             ctx = AIBacktestContext(backtest_id, config)
 
+            # 安全兜底：AI 回测必须启用 AI 分析
+            if not ctx.use_ai:
+                logger.warning(f"AI backtest {backtest_id} has use_ai=False, aborting")
+                backtest.status = "cancelled"
+                backtest.completed_at = datetime.now(timezone.utc)
+                backtest.result_summary = {
+                    "message": "AI 回测未启用 AI 分析，已自动终止",
+                    "status": "cancelled",
+                }
+                await session.commit()
+                _publish_progress(backtest_id, "cancelled", 0, 0, ctx.total_klines, 0,
+                                  message="AI 回测未启用 AI 分析，已自动终止")
+                return
+
         # 2. 预热阶段
         _publish_progress(backtest_id, "preheat", 2, 0, ctx.total_klines, 0,
                           message="正在获取预热数据...")
@@ -227,6 +241,9 @@ async def _run_backtest_async(backtest_id: str):
                         "ma5": indicators.get("ma5"),
                         "ma10": indicators.get("ma10"),
                         "rsi_14": indicators.get("rsi_14"),
+                        "ema20": indicators.get("ema20"),
+                        "ema50": indicators.get("ema50"),
+                        "volume_ma20": indicators.get("volume_ma20"),
                     },
                     message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
                 )
@@ -362,7 +379,10 @@ def _publish_progress(
 
         channel = f"ai-backtest-progress:{backtest_id}"
         r = sync_redis.from_url(settings.REDIS_URL)
-        r.publish(channel, json.dumps(payload, ensure_ascii=False))
+        payload_json = json.dumps(payload, ensure_ascii=False)
+        r.publish(channel, payload_json)
+        # 持久化最后一次进度，供已完成回测的 SSE 端点读取
+        r.setex(f"ai-backtest-last-progress:{backtest_id}", 3600, payload_json)
         r.close()
     except Exception as e:
         logger.warning(f"Failed to publish progress: {e}")
@@ -398,21 +418,37 @@ def _fetch_backtest_klines(ctx: AIBacktestContext) -> List[Dict]:
     return _fetch_klines(ctx.symbol, ctx.timeframe, ctx.start_time, ctx.total_klines)
 
 
+def _ema(values: np.ndarray, period: int) -> float:
+    """计算指数移动平均。"""
+    if len(values) < period:
+        return float(values[-1])
+    alpha = 2 / (period + 1)
+    result = float(values[0])
+    for v in values[1:]:
+        result = alpha * v + (1 - alpha) * result
+    return result
+
+
 def _calculate_indicators(klines: List[Dict]) -> Dict[str, Any]:
     """计算技术指标。"""
     closes = np.array([k["close"] for k in klines])
     highs = np.array([k["high"] for k in klines])
     lows = np.array([k["low"] for k in klines])
+    volumes = np.array([k.get("volume", 0) for k in klines])
 
     n = len(closes)
     indicators = {}
 
-    # MA
-    indicators["ma5"] = float(np.mean(closes[-5:])) if n >= 5 else closes[-1]
-    indicators["ma10"] = float(np.mean(closes[-10:])) if n >= 10 else closes[-1]
-    indicators["ma20"] = float(np.mean(closes[-20:])) if n >= 20 else closes[-1]
+    # SMA（简单移动平均）
+    indicators["ma5"] = float(np.mean(closes[-5:])) if n >= 5 else float(closes[-1])
+    indicators["ma10"] = float(np.mean(closes[-10:])) if n >= 10 else float(closes[-1])
+    indicators["ma20"] = float(np.mean(closes[-20:])) if n >= 20 else float(closes[-1])
 
-    # RSI
+    # EMA（指数移动平均）- 策略常用指标
+    indicators["ema20"] = _ema(closes, 20) if n >= 20 else float(closes[-1])
+    indicators["ema50"] = _ema(closes, 50) if n >= 50 else float(closes[-1])
+
+    # RSI 14
     if n >= 15:
         deltas = np.diff(closes)
         gains = np.where(deltas > 0, deltas, 0)
@@ -427,6 +463,9 @@ def _calculate_indicators(klines: List[Dict]) -> Dict[str, Any]:
         indicators["rsi_14"] = float(rsi)
     else:
         indicators["rsi_14"] = 50.0
+
+    # 成交量均线
+    indicators["volume_ma20"] = float(np.mean(volumes[-20:])) if n >= 20 else float(np.mean(volumes))
 
     # 关键水平
     indicators["support"] = [float(np.min(lows[-20:]))] if n >= 20 else [float(np.min(lows))]

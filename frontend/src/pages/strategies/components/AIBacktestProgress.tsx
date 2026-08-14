@@ -137,11 +137,14 @@ export const AIBacktestProgress: React.FC<Props> = ({
       {/* 技术指标 */}
       {progress.indicators && (
         <Card size="small" style={{ marginBottom: 16 }}>
-          <Space>
+          <Space wrap>
             <Text strong>技术指标: </Text>
             <Text>MA5: {progress.indicators.ma5?.toFixed(2) || '-'}</Text>
             <Text>MA10: {progress.indicators.ma10?.toFixed(2) || '-'}</Text>
+            <Text>EMA20: {progress.indicators.ema20?.toFixed(2) || '-'}</Text>
+            <Text>EMA50: {progress.indicators.ema50?.toFixed(2) || '-'}</Text>
             <Text>RSI14: {progress.indicators.rsi_14?.toFixed(1) || '-'}</Text>
+            <Text>VolMA20: {progress.indicators.volume_ma20 ? (progress.indicators.volume_ma20 / 1000).toFixed(0) + 'K' : '-'}</Text>
           </Space>
         </Card>
       )}
