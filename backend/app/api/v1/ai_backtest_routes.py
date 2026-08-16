@@ -129,6 +129,13 @@ async def get_ai_backtest_progress(
                     "失败" if backtest.status == "failed" else
                     "取消"
                 ),
+                # 08-AI回测K线分析优化 新增字段
+                "precheck_total": backtest.precheck_total,
+                "precheck_triggered": backtest.precheck_triggered,
+                "ai_call_count": backtest.ai_call_count,
+                "current_stage_detail": "",
+                "initial_analysis": backtest.initial_analysis,
+                "ai_analysis_logs": backtest.ai_analysis_logs,
             }
             # 尝试从 Redis 读取最后一次推送的进度数据（包含 ai_analysis 和 indicators）
             try:

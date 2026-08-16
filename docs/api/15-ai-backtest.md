@@ -1,7 +1,7 @@
 # 15-AI 回测接口文档
 
 > 模块：AI 驱动策略回测
-> 对齐方案：`docs/backend/07-AI回测增强与终止后端技术方案.md`
+> 对齐方案：`docs/backend/07-AI回测增强与终止后端技术方案.md`、`docs/backend/08-AI回测K线分析优化后端技术方案.md`
 > Base URL：`/api/v1/strategies/ai-backtest`
 
 ---
@@ -17,7 +17,9 @@
 7. [终止运行中回测](#7-终止运行中回测)
 8. [回测结果 AI 分析](#8-回测结果-ai-分析)
 9. [策略优化](#9-策略优化)
-10. [数据模型](#10-数据模型)
+10. [多策略融合优化](#10-多策略融合优化)
+11. [Prompt 模板管理](#11-prompt-模板管理)
+12. [数据模型](#12-数据模型)
 
 ---
 
@@ -43,7 +45,9 @@ POST /strategies/ai-backtest
   "kline_count": 500,
   "initial_capital": 10000.00,
   "fee_rate": 0.001,
-  "use_ai": true
+  "use_ai": true,
+  "use_local_model": false,
+  "local_model_klines": 10
 }
 ```
 
@@ -62,6 +66,8 @@ POST /strategies/ai-backtest
 | initial_capital | float | 否 | 10000.00 | 初始资金，100~100,000,000 |
 | fee_rate | float | 否 | 0.001 | 手续费率，0~0.01 |
 | use_ai | bool | 否 | true | 是否启用 AI 决策 |
+| use_local_model | bool | 否 | false | 是否启用本地模型预筛（Ollama） |
+| local_model_klines | int | 否 | 10 | 本地模型预筛 K 线数量，5~50 |
 
 **返回结果：**
 
@@ -83,6 +89,8 @@ POST /strategies/ai-backtest
     "initial_capital": 10000.00,
     "fee_rate": 0.001,
     "use_ai": true,
+    "use_local_model": false,
+    "local_model_klines": 10,
     "status": "pending",
     "total_klines": 500,
     "completed_klines": 0,
@@ -90,6 +98,14 @@ POST /strategies/ai-backtest
     "started_at": null,
     "completed_at": null,
     "result_summary": null,
+    "parent_backtest_id": null,
+    "strategy_ids": null,
+    "ai_call_count": 0,
+    "precheck_total": 0,
+    "precheck_triggered": 0,
+    "initial_analysis": null,
+    "ai_analysis_logs": null,
+    "prompt_template_ids": null,
     "created_at": "2026-08-14T10:49:00Z"
   }
 }
@@ -250,6 +266,11 @@ GET /strategies/ai-backtest/{backtest_id}
 | open_count | int | 开仓次数 |
 | close_reasons | object | 平仓原因分布 |
 | ai_analysis | object | AI 分析结果（可选） |
+| precheck_total | int | 预筛总次数 |
+| precheck_triggered | int | 预筛触发深度分析次数 |
+| precheck_trigger_rate | float | 预筛触发率（%） |
+| use_local_model | bool | 是否启用本地模型预筛 |
+| initial_trend | string | 初始化分析趋势 bullish/bearish/neutral |
 
 ---
 
@@ -306,12 +327,23 @@ GET /strategies/ai-backtest/{backtest_id}/trades
         "pnl_pct": 2.5,
         "fee": 0.15,
         "extra": null,
+        "ai_window_start": 250,
+        "ai_window_end": 349,
+        "trigger_reason": "ai_precheck",
         "created_at": "2026-08-14T10:51:00Z"
       }
     ]
   }
 }
 ```
+
+**新增字段说明（08-AI回测K线分析优化）：**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| ai_window_start | int | AI 分析窗口起始 K 线索引 |
+| ai_window_end | int | AI 分析窗口结束 K 线索引 |
+| trigger_reason | string | 触发 AI 分析的原因：local_model / ai_precheck / key_level_hit / deep_analysis |
 
 ---
 
@@ -367,6 +399,12 @@ data: [DONE]
 | indicators.ma5 | float | MA5 |
 | indicators.ma10 | float | MA10 |
 | indicators.rsi_14 | float | RSI14 |
+| precheck_total | int | 预筛总次数（08优化） |
+| precheck_triggered | int | 预筛触发深度分析次数（08优化） |
+| ai_call_count | int | AI 深度分析调用次数（08优化） |
+| current_stage_detail | string | 当前阶段详情：suspended / holding / precheck / rule（08优化） |
+| initial_analysis | object | 初始化分析结果（趋势+关键位）（08优化，已完成回测时） |
+| ai_analysis_logs | array | 深度分析日志列表（08优化，已完成回测时） |
 
 **注意：**
 - 若回测已完成或失败，SSE 直接返回最终状态并立即结束
@@ -551,13 +589,191 @@ POST /strategies/ai-backtest/{backtest_id}/optimize
 
 ---
 
-## 10. 数据模型
+## 10. 多策略融合优化
 
-### 10.1 AIBacktest（ai_backtests 表）
+```
+POST /strategies/ai-backtest/{backtest_id}/merge-optimize
+```
+
+基于多个策略的回测结果，通过 LLM 分析融合生成新策略，并自动创建子回测。
+
+**鉴权：** Trader+
+
+**路径参数：**
+
+| 参数 | 类型 | 说明 |
+|---|---|---|
+| backtest_id | UUID | 父回测记录 ID |
+
+**请求体：**
+
+```json
+{
+  "strategy_ids": ["UUID1", "UUID2", "UUID3"],
+  "symbol": "BTC/USDT",
+  "timeframe": "15m",
+  "name": "融合策略名称"
+}
+```
+
+**参数说明：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| strategy_ids | string[] | 是 | - | 参与融合的策略 ID 列表，至少 2 个 |
+| symbol | string | 是 | - | 交易对 |
+| timeframe | string | 是 | - | 时间周期 |
+| name | string | 否 | 自动生成 | 融合策略名称 |
+
+**处理流程：**
+1. 验证所有策略存在且属于当前用户
+2. 验证父回测状态为 completed
+3. 调用 LLM 分析各策略表现，生成融合后的新策略规则
+4. 创建新策略记录（关联 source_backtest_id）
+5. 创建子回测并自动启动（关联 parent_backtest_id）
+6. 返回子回测详情
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "id": "UUID",
+    "strategy_id": "UUID",
+    "strategy_name": "融合策略名称",
+    "parent_backtest_id": "UUID",
+    "strategy_ids": ["UUID1", "UUID2", "UUID3"],
+    "status": "pending",
+    "symbol": "BTC/USDT",
+    "timeframe": "15m",
+    "total_klines": 500,
+    "completed_klines": 0,
+    "progress": 0.0,
+    "created_at": "2026-08-15T03:00:00Z"
+  }
+}
+```
+
+---
+
+## 11. Prompt 模板管理
+
+```
+Base URL：/api/v1/ai/prompt-templates
+```
+
+管理 AI 回测各阶段使用的 Prompt 模板，支持按分类管理。
+
+**分类说明：**
+
+| 分类 | 说明 |
+|---|---|
+| initial_analysis | 初始化 300 根 K 线分析模板 |
+| backtest_precheck | 快速预筛模板（两级 AI 过滤第一级） |
+| deep_analysis | 深度分析模板（两级 AI 过滤第二级） |
+
+### 11.1 获取模板列表
+
+```
+GET /api/v1/ai/prompt-templates
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|---|---|---|---|
+| category | string | 全部 | 可选：initial_analysis / backtest_precheck / deep_analysis |
+| active_only | bool | false | 仅返回启用的模板 |
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "items": [
+      {
+        "id": "UUID",
+        "category": "initial_analysis",
+        "name": "初始化分析模板 v1",
+        "is_active": true,
+        "version": 1,
+        "created_at": "2026-08-15T03:00:00Z",
+        "updated_at": null
+      }
+    ],
+    "total": 1
+  }
+}
+```
+
+### 11.2 获取模板详情
+
+```
+GET /api/v1/ai/prompt-templates/{template_id}
+```
+
+### 11.3 创建模板
+
+```
+POST /api/v1/ai/prompt-templates
+```
+
+**请求体：**
+
+```json
+{
+  "category": "initial_analysis",
+  "name": "初始化分析模板 v1",
+  "content": "你是一个专业的加密货币市场分析师...",
+  "is_active": true
+}
+```
+
+**参数说明：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|---|---|---|---|---|
+| category | string | 是 | - | initial_analysis / backtest_precheck / deep_analysis |
+| name | string | 是 | - | 模板名称，最大 200 字符 |
+| content | string | 是 | - | 模板内容，支持 {} 占位符 |
+| is_active | bool | 否 | true | 是否启用 |
+
+### 11.4 更新模板
+
+```
+PATCH /api/v1/ai/prompt-templates/{template_id}
+```
+
+**请求体：**
+
+```json
+{
+  "name": "初始化分析模板 v2",
+  "content": "更新后的模板内容...",
+  "is_active": true
+}
+```
+
+**注意：** 每次更新自动将版本号 `version + 1`
+
+### 11.5 删除模板
+
+```
+DELETE /api/v1/ai/prompt-templates/{template_id}
+```
+
+---
+
+## 12. 数据模型
+
+### 12.1 AIBacktest（ai_backtests 表）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | UUID | 主键 |
+| parent_backtest_id | UUID | 多策略融合父回测 ID（可选） |
 | strategy_id | UUID | 关联策略 ID |
 | user_id | UUID | 用户 ID |
 | symbol | VARCHAR(20) | 交易对 |
@@ -571,16 +787,25 @@ POST /strategies/ai-backtest/{backtest_id}/optimize
 | initial_capital | NUMERIC(20,2) | 初始资金 |
 | fee_rate | FLOAT | 手续费率，默认 0.001 |
 | use_ai | BOOLEAN | 是否启用 AI 决策，默认 true |
+| use_local_model | BOOLEAN | 是否启用本地模型预筛 |
+| local_model_klines | INTEGER | 本地模型预筛 K 线数量 |
 | total_klines | INTEGER | 总 K 线数 |
 | completed_klines | INTEGER | 已推进 K 线数 |
 | status | VARCHAR(20) | pending / running / completed / failed / cancelling / cancelled |
-| result_summary | JSONB | 回测总结指标（含 ai_analysis） |
+| result_summary | JSONB | 回测总结指标（含 ai_analysis、precheck 统计） |
+| strategy_ids | JSONB | 多策略融合策略 ID 列表 |
+| ai_call_count | INTEGER | AI 深度分析调用次数 |
+| precheck_total | INTEGER | 预筛总次数 |
+| precheck_triggered | INTEGER | 预筛触发深度分析次数 |
+| initial_analysis | JSONB | 初始化 300 根 K 线分析结果（趋势+关键位） |
+| ai_analysis_logs | JSONB | 深度分析日志列表 |
+| prompt_template_ids | JSONB | Prompt 模板 ID 映射 |
 | started_at | TIMESTAMPTZ | 开始执行时间 |
 | completed_at | TIMESTAMPTZ | 完成时间 |
 | created_at | TIMESTAMPTZ | 创建时间 |
 | updated_at | TIMESTAMPTZ | 更新时间 |
 
-### 10.2 AIBacktestTrade（ai_backtest_trades 表）
+### 12.2 AIBacktestTrade（ai_backtest_trades 表）
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
@@ -606,5 +831,21 @@ POST /strategies/ai-backtest/{backtest_id}/optimize
 | pnl_pct | NUMERIC(10,4) | 盈亏百分比 |
 | fee | NUMERIC(20,4) | 手续费 |
 | extra | JSONB | 扩展字段 |
+| ai_window_start | INTEGER | AI 分析窗口起始索引（08优化） |
+| ai_window_end | INTEGER | AI 分析窗口结束索引（08优化） |
+| trigger_reason | VARCHAR(50) | 触发 AI 分析的原因（08优化） |
+| created_at | TIMESTAMPTZ | 创建时间 |
+| updated_at | TIMESTAMPTZ | 更新时间 |
+
+### 12.3 PromptTemplate（prompt_templates 表）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | UUID | 主键 |
+| category | VARCHAR(50) | 模板分类：initial_analysis / backtest_precheck / deep_analysis |
+| name | VARCHAR(200) | 模板名称 |
+| content | TEXT | 模板内容（支持 {} 占位符） |
+| is_active | BOOLEAN | 是否启用 |
+| version | INTEGER | 版本号，每次更新 +1 |
 | created_at | TIMESTAMPTZ | 创建时间 |
 | updated_at | TIMESTAMPTZ | 更新时间 |
