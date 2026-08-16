@@ -62,6 +62,29 @@ class ProviderFactory:
 
         return NoopProvider("当前激活的 Provider 配置异常")
 
+    @staticmethod
+    async def get_provider_by_type(db: AsyncSession, provider_type: str) -> LLMProvider:
+        """按类型获取第一个匹配的 Provider 实例。
+
+        Args:
+            db: 数据库会话
+            provider_type: Provider 类型，如 "ollama"、"openai_compatible"
+
+        Returns:
+            LLMProvider 实例
+
+        Raises:
+            ValueError: 未找到匹配类型的 Provider
+        """
+        data = await ProviderFactory.load_providers(db)
+        providers = data.get("providers", [])
+
+        for p in providers:
+            if p.get("type") == provider_type:
+                return ProviderFactory._create_provider(p)
+
+        raise ValueError(f"未找到类型为 '{provider_type}' 的 Provider")
+
     # ---------- 创建实例 ----------
 
     @staticmethod
