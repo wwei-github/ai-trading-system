@@ -30,6 +30,19 @@ _MARKET_ANALYSIS_PROMPT = """你是一个专业的加密货币交易AI助手，�
 {strategy_rules}
 
 请分析当前市场状态，并给出交易决策。
+
+### 开仓要求：
+- 入场信号必须严格符合策略的入场规则（entry_rules）
+- 如果开仓，必须提供止损价（stop_loss）
+- 止损价必须基于策略指定的止损方式（如 Pinbar 极值、ATR倍数、固定百分比等）
+- 止盈价（take_profit）必须基于合理的盈亏比（至少 1.5R，建议 1.5R~2R）
+- 仓位大小（position_size_pct）必须遵循策略的仓位管理规则
+- 开仓理由（reason）必须说明哪个具体规则条件触发了信号
+
+### 持仓管理：
+- 有持仓时，基于策略的出场规则（exit_rules）判断是否平仓
+- 平仓理由必须说明哪个具体规则条件触发了平仓
+
 输出格式：按JSON格式输出，包含market_analysis、decision、trade_plan三个字段。
 {{
   "market_analysis": {{
@@ -40,13 +53,15 @@ _MARKET_ANALYSIS_PROMPT = """你是一个专业的加密货币交易AI助手，�
   "decision": "open_long/open_short/close_long/close_short/hold",
   "trade_plan": {{
     "action": "同上",
-    "reason": "理由",
+    "reason": "理由（必须说明触发的具体规则条件）",
     "confidence": 4,
     "entry_price": 0,
     "quantity": 0,
     "stop_loss": 0,
     "take_profit": 0,
-    "position_size_pct": 0.3
+    "position_size_pct": 0.3,
+    "stop_loss_method": "止损方式说明",
+    "risk_reward_ratio": 1.5
   }}
 }}
 
@@ -55,12 +70,14 @@ _MARKET_ANALYSIS_PROMPT = """你是一个专业的加密货币交易AI助手，�
 - 如果无操作，decision为"hold"，trade_plan留空
 - 如果开仓，必须提供合理的止盈止损价
 - 仓位管理参考策略规则中的position_sizing
+- 止损方式必须参考策略规则中的risk_control
 
 ⚠️ 严格执规要求：
 - 你必须严格遵守以下策略规则，不可擅自偏离或创造新规则
 - 入场信号必须符合策略的入场规则
 - 出场信号必须符合策略的出场规则
 - 仓位大小必须符合策略的仓位管理规则
+- 止损方式必须符合策略的风控规则
 """
 
 # ========== 08-AI回测K线分析优化 新增 Prompt ==========
@@ -113,9 +130,30 @@ AI_ANALYSIS_WINDOW_PROMPT = """你是一个专业的加密货币交易AI助手�
 ## 策略规则摘要
 {strategy_rules}
 
+## 仓位管理规则
+{position_sizing_rules}
+
+## 风控规则
+{risk_control_rules}
+
+## 策略前提规则（必须遵守）
+{prerequisites_rules}
+
 请分析以上K线窗口中的市场状态，特别是最新K线的信号，并给出交易决策。
 
-输出格式（只输出JSON）：
+### 开仓要求：
+- 入场信号必须严格符合策略的入场规则（entry_rules）
+- 如果开仓，必须提供止损价（stop_loss）
+- 止损价必须基于策略指定的止损方式（如 Pinbar 极值、ATR倍数、固定百分比等）
+- 止盈价（take_profit）必须基于合理的盈亏比（至少 1.5R，建议 1.5R~2R）
+- 仓位大小（position_size_pct）必须遵循策略的仓位管理规则
+- 开仓理由（reason）必须说明哪个具体规则条件触发了信号
+
+### 持仓管理：
+- 有持仓时，基于策略的出场规则（exit_rules）判断是否平仓
+- 平仓理由必须说明哪个具体规则条件触发了平仓
+
+输出格式（只输出JSON，不要输出其他文字）：
 {{
   "market_analysis": {{
     "trend": "bullish/bearish/neutral",
@@ -125,21 +163,17 @@ AI_ANALYSIS_WINDOW_PROMPT = """你是一个专业的加密货币交易AI助手�
   "decision": "open_long/open_short/close_long/close_short/hold",
   "trade_plan": {{
     "action": "同上",
-    "reason": "理由",
+    "reason": "理由（必须说明触发的具体规则条件）",
     "confidence": 4,
     "entry_price": 0,
     "quantity": 0,
     "stop_loss": 0,
     "take_profit": 0,
-    "position_size_pct": 0.3
+    "position_size_pct": 0.3,
+    "stop_loss_method": "止损方式说明",
+    "risk_reward_ratio": 1.5
   }}
 }}
-
-注意：
-- 只输出JSON，不要输出其他文字
-- 如果无操作，decision为"hold"，trade_plan留空
-- 如果开仓，必须提供合理的止盈止损价
-- 基于K线窗口数据做出判断，而非仅凭最新一根K线
 """
 
 # 初始化分析 Prompt
@@ -438,6 +472,11 @@ class AIMarketAnalyzer:
             f"出场规则: {strategy_rules.get('exit_rules', [])}"
         )
 
+        # 仓位管理、风控、前提规则
+        position_sizing_rules = json.dumps(strategy_rules.get("position_sizing", {}), ensure_ascii=False, indent=2)
+        risk_control_rules = json.dumps(strategy_rules.get("risk_control", {}), ensure_ascii=False, indent=2)
+        prerequisites_rules = json.dumps(strategy_rules.get("prerequisites", {}), ensure_ascii=False, indent=2)
+
         indicators_summary = (
             f"MA5={indicators.get('ma5', 'N/A')}, "
             f"MA10={indicators.get('ma10', 'N/A')}, "
@@ -462,6 +501,9 @@ class AIMarketAnalyzer:
             indicators_summary=indicators_summary,
             position_status=position_status,
             strategy_rules=strategy_summary,
+            position_sizing_rules=position_sizing_rules,
+            risk_control_rules=risk_control_rules,
+            prerequisites_rules=prerequisites_rules,
         )
 
         # 调用 LLM

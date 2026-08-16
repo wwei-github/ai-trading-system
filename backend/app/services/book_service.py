@@ -170,6 +170,19 @@ class BookService:
         book = await self.get_book(book_id)
         if book is None:
             return False
+
+        # 检查是否有策略引用该书
+        from app.models.strategy import Strategy
+        stmt = select(Strategy).where(Strategy.source_book_id == book_id).limit(5)
+        result = await self.db.execute(stmt)
+        referencing_strategies = result.scalars().all()
+        if referencing_strategies:
+            strategy_names = [s.name for s in referencing_strategies[:3]]
+            raise BadRequestException(
+                message=f"该书被 {len(referencing_strategies)} 个策略引用，请先删除这些策略后再删除书籍",
+                detail={"strategies": strategy_names, "count": len(referencing_strategies)},
+            )
+
         # 删除关联章节
         await self.db.execute(
             delete(BookChapter).where(BookChapter.book_id == book_id)

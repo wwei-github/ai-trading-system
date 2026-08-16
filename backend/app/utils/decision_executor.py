@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,11 @@ class DecisionExecutor:
             decision = ai_result.get("decision", "hold")
             trade_plan = ai_result.get("trade_plan", {})
         else:
-            decision, trade_plan = self._rule_engine(kline, indicators)
+            # AI 不可用时 —— 仅处理已有持仓的平仓/止损，不开新仓
+            if self.ctx.current_position:
+                decision, trade_plan = self._rule_engine_exit_only(kline, indicators)
+            else:
+                decision, trade_plan = "hold", {}
 
         if decision == "hold" or decision == "no_action":
             return
@@ -194,6 +198,27 @@ class DecisionExecutor:
 
     # ==================== 策略规则引擎 ====================
 
+    def _rule_engine_exit_only(
+        self, kline: Dict[str, Any], indicators: Dict[str, Any]
+    ) -> Tuple[str, Dict]:
+        """AI 不可用时，仅处理已有持仓的平仓/止损，不开新仓。"""
+        if not self.ctx.current_position:
+            return ("hold", {})
+
+        # 止损/止盈检查（硬止损）
+        exit_decision = self._check_position_exit(kline)
+        if exit_decision[0] != "hold":
+            return exit_decision
+
+        # 策略出场规则检查
+        exit_rules = self.ctx.strategy_rules.get("exit_rules", [])
+        if exit_rules:
+            result = self._evaluate_rules(exit_rules, kline, indicators, "exit")
+            if result[0] != "hold":
+                return result
+
+        return ("hold", {})
+
     def _rule_engine(
         self, kline: Dict[str, Any], indicators: Dict[str, Any]
     ) -> Tuple[str, Dict]:
@@ -278,18 +303,21 @@ class DecisionExecutor:
     def _evaluate_entry_group(
         self, conditions: list, logic: str, kline: Dict, indicators: Dict
     ) -> Optional[Tuple[str, Dict]]:
-        """评估一组入场条件。"""
+        """评估一组入场条件，返回决策和匹配的具体条件。"""
         results = []
         for cond in conditions:
             result = self._evaluate_condition(cond, kline, indicators)
             results.append(result)
 
         if logic == "AND":
-            if all(results):
-                return self._build_entry_decision(kline, indicators)
+            if all(r.indicators.get("matched", False) for r in results):
+                matched_conditions = [r.condition for r in results if r.indicators.get("matched")]
+                return self._build_entry_decision(kline, indicators, matched_conditions)
         elif logic == "OR":
-            if any(results):
-                return self._build_entry_decision(kline, indicators)
+            matched = [r for r in results if r.indicators.get("matched")]
+            if matched:
+                matched_conditions = [r.condition for r in matched]
+                return self._build_entry_decision(kline, indicators, matched_conditions)
 
         return None
 
@@ -318,8 +346,8 @@ class DecisionExecutor:
 
         return None
 
-    def _evaluate_condition(self, cond: dict, kline: Dict, indicators: Dict) -> bool:
-        """评估单个入场条件。"""
+    def _evaluate_condition(self, cond: dict, kline: Dict, indicators: Dict) -> Dict:
+        """评估单个入场条件，返回匹配结果和条件信息。"""
         indicator = cond.get("indicator", "")
         operator = cond.get("operator", "=")
         value = cond.get("value", "")
@@ -330,15 +358,19 @@ class DecisionExecutor:
         low = kline["low"]
         volume = kline.get("volume", 0)
 
+        # 基础结果结构
+        def _result(matched: bool) -> Dict:
+            return {"matched": matched, "condition": cond, "indicator": indicator, "value": value}
+
         # ---- 趋势过滤 ----
         if indicator == "trend_filter":
             ema20 = indicators.get("ema20", close)
             ema50 = indicators.get("ema50", close)
             if value == "uptrend":
-                return close > ema20 and ema20 > ema50
+                return _result(close > ema20 and ema20 > ema50)
             elif value == "downtrend":
-                return close < ema20 and ema20 < ema50
-            return False
+                return _result(close < ema20 and ema20 < ema50)
+            return _result(False)
 
         # ---- Pinbar 信号 ----
         if indicator == "pinbar_signal":
@@ -347,26 +379,42 @@ class DecisionExecutor:
             upper_wick = high - max(open_price, close)
             total_range = high - low
             if total_range == 0:
-                return False
+                return _result(False)
 
             if value == "bullish_pinbar":
-                # 看涨 Pinbar（锤线）：长下影线、小实体、收盘在顶部
-                return (lower_wick > body * 2
-                        and lower_wick > upper_wick
-                        and body < total_range * 0.4)
+                matched = (lower_wick > body * 2
+                           and lower_wick > upper_wick
+                           and body < total_range * 0.4)
+                if matched:
+                    return {
+                        "matched": True, "condition": cond,
+                        "indicator": "pinbar_signal", "value": "bullish_pinbar",
+                        "pinbar": {"body": body, "lower_wick": lower_wick,
+                                   "upper_wick": upper_wick, "low": low, "high": high,
+                                   "close": close, "open": open_price},
+                    }
+                return _result(False)
             elif value == "bearish_pinbar":
-                # 看跌 Pinbar（射击之星）：长上影线、小实体、收盘在底部
-                return (upper_wick > body * 2
-                        and upper_wick > lower_wick
-                        and body < total_range * 0.4)
-            return False
+                matched = (upper_wick > body * 2
+                           and upper_wick > lower_wick
+                           and body < total_range * 0.4)
+                if matched:
+                    return {
+                        "matched": True, "condition": cond,
+                        "indicator": "pinbar_signal", "value": "bearish_pinbar",
+                        "pinbar": {"body": body, "lower_wick": lower_wick,
+                                   "upper_wick": upper_wick, "low": low, "high": high,
+                                   "close": close, "open": open_price},
+                    }
+                return _result(False)
+            return _result(False)
 
         # ---- 成交量确认 ----
         if indicator == "volume":
             volume_ma = indicators.get("volume_ma20", volume)
             if operator == ">" and value == "average_volume":
-                return volume > volume_ma
-            return False
+                return _result(volume > volume_ma)
+            return _result(False)
 
         # ---- 反向信号 ----
         if indicator == "reverse_signal":
@@ -376,19 +424,35 @@ class DecisionExecutor:
                 upper_wick = high - max(open_price, close)
                 total_range = high - low
                 if total_range == 0:
-                    return False
+                    return _result(False)
                 pos = self.ctx.current_position
                 if pos and pos["direction"] == "long":
-                    # 多头持仓时，看跌 Pinbar 为反向信号
-                    return (upper_wick > body * 2
-                            and upper_wick > lower_wick
-                            and body < total_range * 0.4)
+                    matched = (upper_wick > body * 2
+                               and upper_wick > lower_wick
+                               and body < total_range * 0.4)
+                    if matched:
+                        return {
+                            "matched": True, "condition": cond,
+                            "indicator": "reverse_signal", "value": "opposite_pinbar",
+                            "direction": "close_long",
+                            "pinbar": {"body": body, "lower_wick": lower_wick,
+                                       "upper_wick": upper_wick, "low": low, "high": high,
+                                       "close": close, "open": open_price},
+                        }
                 elif pos and pos["direction"] == "short":
-                    # 空头持仓时，看涨 Pinbar 为反向信号
-                    return (lower_wick > body * 2
-                            and lower_wick > upper_wick
-                            and body < total_range * 0.4)
-            return False
+                    matched = (lower_wick > body * 2
+                               and lower_wick > upper_wick
+                               and body < total_range * 0.4)
+                    if matched:
+                        return {
+                            "matched": True, "condition": cond,
+                            "indicator": "reverse_signal", "value": "opposite_pinbar",
+                            "direction": "close_short",
+                            "pinbar": {"body": body, "lower_wick": lower_wick,
+                                       "upper_wick": upper_wick, "low": low, "high": high,
+                                       "close": close, "open": open_price},
+                        }
+            return _result(False)
 
         # ---- 移动止损 ----
         if indicator == "trailing_stop":
@@ -396,14 +460,14 @@ class DecisionExecutor:
                 ema20 = indicators.get("ema20", close)
                 pos = self.ctx.current_position
                 if pos and pos["direction"] == "long":
-                    return close < ema20
+                    return _result(close < ema20)
                 elif pos and pos["direction"] == "short":
-                    return close > ema20
-            return False
+                    return _result(close > ema20)
+            return _result(False)
 
         # ---- 未知条件 ----
         logger.warning(f"规则引擎遇到未知条件: {indicator}={value}")
-        return False
+        return _result(False)
 
     def _evaluate_exit_condition(self, cond: dict, kline: Dict, indicators: Dict) -> Tuple[bool, str]:
         """评估单个出场条件。"""
@@ -472,32 +536,110 @@ class DecisionExecutor:
 
         return (False, "")
 
-    def _build_entry_decision(self, kline: Dict, indicators: Dict) -> Tuple[str, Dict]:
-        """根据入场信号构建开仓决策。"""
-        # 根据趋势方向判断开多还是开空
-        ema20 = indicators.get("ema20", kline["close"])
-        ema50 = indicators.get("ema50", kline["close"])
-        close = kline["close"]
+    def _build_entry_decision(self, kline: Dict, indicators: Dict,
+                              matched_conditions: Optional[List[Dict]] = None) -> Tuple[str, Dict]:
+        """根据匹配的策略规则条件构建开仓决策。
 
-        if close > ema20 and ema20 > ema50:
-            direction = "long"
-        elif close < ema20 and ema20 < ema50:
-            direction = "short"
-        else:
-            # 盘整行情，默认做多（跟随 Pinbar 方向）
-            body = abs(close - kline["open"])
-            lower_wick = min(kline["open"], close) - kline["low"]
-            if lower_wick > body * 2:
-                direction = "long"
+        Args:
+            kline: 当前 K 线
+            indicators: 技术指标
+            matched_conditions: 匹配的具体条件列表（含 indicator/value/pinbar 等字段）
+
+        Returns:
+            (decision, trade_plan) 元组
+        """
+        close = kline["close"]
+        direction = None
+        direction_source = None  # 用于生成开仓理由
+        stop_loss = None
+        take_profit = None
+        entry_price = close
+
+        # 收集匹配的 Pinbar 信息
+        pinbar_info = None
+        has_trend_filter = False
+        trend_filter_direction = None
+
+        for cond_info in (matched_conditions or []):
+            indicator = cond_info.get("indicator", "")
+            value = cond_info.get("value", "")
+
+            if indicator == "pinbar_signal":
+                pinbar_info = cond_info.get("pinbar", {})
+                if value == "bullish_pinbar":
+                    direction = "long"
+                    direction_source = "看涨Pinbar"
+                    # Pinbar 止损：下影线最低点下方
+                    stop_loss = pinbar_info["low"] - (pinbar_info["high"] - pinbar_info["low"]) * 0.05
+                    # Pinbar 止盈：1.5R
+                    risk = entry_price - stop_loss
+                    take_profit = entry_price + risk * 1.5
+                elif value == "bearish_pinbar":
+                    direction = "short"
+                    direction_source = "看跌Pinbar"
+                    # Pinbar 止损：上影线最高点上方
+                    stop_loss = pinbar_info["high"] + (pinbar_info["high"] - pinbar_info["low"]) * 0.05
+                    # Pinbar 止盈：1.5R
+                    risk = stop_loss - entry_price
+                    take_profit = entry_price - risk * 1.5
+
+            elif indicator == "trend_filter":
+                has_trend_filter = True
+                if value == "uptrend":
+                    trend_filter_direction = "long"
+                elif value == "downtrend":
+                    trend_filter_direction = "short"
+
+        # 方向决策：Pinbar 信号优先，其次趋势过滤
+        if direction is None:
+            if has_trend_filter and trend_filter_direction:
+                direction = trend_filter_direction
+                direction_source = f"{trend_filter_direction}趋势过滤"
+                # 趋势过滤方向：默认 3% 止损，5% 止盈
+                if direction == "long":
+                    stop_loss = close * 0.97
+                    take_profit = close * 1.05
+                else:
+                    stop_loss = close * 1.03
+                    take_profit = close * 0.95
             else:
-                direction = "short"
+                # 回退：根据 EMA 趋势判断（仅当无具体条件匹配时）
+                ema20 = indicators.get("ema20", close)
+                ema50 = indicators.get("ema50", close)
+                if close > ema20 and ema20 > ema50:
+                    direction = "long"
+                    direction_source = "EMA多头排列"
+                    stop_loss = close * 0.97
+                    take_profit = close * 1.05
+                elif close < ema20 and ema20 < ema50:
+                    direction = "short"
+                    direction_source = "EMA空头排列"
+                    stop_loss = close * 1.03
+                    take_profit = close * 0.95
+                else:
+                    # 盘整行情，默认做多
+                    direction = "long"
+                    direction_source = "默认方向（盘整）"
+                    stop_loss = close * 0.97
+                    take_profit = close * 1.05
+
+        # 构建开仓理由
+        if pinbar_info:
+            reason = (
+                f"策略规则：{direction_source}信号触发，"
+                f"Pinbar实体={pinbar_info['body']:.2f} 下影线={pinbar_info['lower_wick']:.2f} "
+                f"上影线={pinbar_info['upper_wick']:.2f}，"
+                f"止损Pinbar极值，止盈1.5R"
+            )
+        else:
+            reason = f"策略规则：{direction_source}信号触发，止损{abs(1-stop_loss/close)*100:.0f}%，止盈{abs(take_profit/close-1)*100:.0f}%"
 
         return (f"open_{direction}", {
-            "reason": f"策略规则：{direction.upper()}信号触发",
+            "reason": reason,
             "confidence": 4,
-            "entry_price": close,
-            "stop_loss": close * 0.97 if direction == "long" else close * 1.03,
-            "take_profit": close * 1.05 if direction == "long" else close * 0.95,
+            "entry_price": entry_price,
+            "stop_loss": stop_loss,
+            "take_profit": take_profit,
         })
 
     def _build_exit_decision(self, direction: str, reason: str) -> Tuple[str, Dict]:

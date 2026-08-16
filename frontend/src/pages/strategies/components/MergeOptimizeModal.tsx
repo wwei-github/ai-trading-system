@@ -142,7 +142,7 @@ const MergeOptimizeModal: React.FC<Props> = ({ open, onClose, defaultBacktestId 
       cancelButtonProps={{ disabled: mergeMutation.isPending }}
       maskClosable={!mergeMutation.isPending}
       width={680}
-      destroyOnClose
+      destroyOnHidden
     >
       {mergeMutation.isPending ? (
         <Alert
@@ -159,8 +159,12 @@ const MergeOptimizeModal: React.FC<Props> = ({ open, onClose, defaultBacktestId 
             message="多策略融合优化说明"
             description={
               <ul style={{ marginBottom: 0, paddingLeft: 18 }}>
-                <li>选择一个已完成的回测作为<b>父回测</b>(路径参数)</li>
-                <li>选择 2-5 个<b>策略</b>参与融合(策略ID,非回测ID)</li>
+                <li>
+                  选择一个已完成的回测作为<b>父回测</b>(路径参数)
+                </li>
+                <li>
+                  选择 2-5 个<b>策略</b>参与融合(策略ID,非回测ID)
+                </li>
                 <li>AI 将综合分析各策略规则与表现,取长补短</li>
                 <li>生成一个全新的融合策略,并自动启动子回测</li>
                 <li>原策略不会被修改</li>
@@ -253,23 +257,11 @@ const MergeOptimizeModal: React.FC<Props> = ({ open, onClose, defaultBacktestId 
               </Form.Item>
             </Space>
 
-            <Form.Item
-              name="name"
-              label="新策略名称"
-              tooltip="可选,留空则由 AI 自动生成"
-            >
-              <Input
-                placeholder="可选,留空由 AI 自动命名"
-                maxLength={200}
-                showCount
-              />
+            <Form.Item name="name" label="新策略名称" tooltip="可选,留空则由 AI 自动生成">
+              <Input placeholder="可选,留空由 AI 自动命名" maxLength={200} showCount />
             </Form.Item>
 
-            <Form.Item
-              name="description"
-              label="新策略描述"
-              tooltip="可选"
-            >
+            <Form.Item name="description" label="新策略描述" tooltip="可选">
               <Input.TextArea
                 placeholder="可选,对新策略的描述说明"
                 rows={2}
@@ -292,4 +284,6 @@ const MergeOptimizeModal: React.FC<Props> = ({ open, onClose, defaultBacktestId 
   );
 };
 
+// 同时支持命名导入（AIBacktestPanel 使用）和默认导入
+export { MergeOptimizeModal };
 export default MergeOptimizeModal;

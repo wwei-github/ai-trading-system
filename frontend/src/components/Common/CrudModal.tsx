@@ -98,7 +98,7 @@ const CrudModal = <T extends Record<string, any>>({
       okText={okText || (isReadOnly ? '关闭' : '确定')}
       cancelText="取消"
       okButtonProps={isReadOnly ? { style: { display: 'none' } } : undefined}
-      destroyOnClose
+      destroyOnHidden
       maskClosable={false}
       width={640}
       {...modalProps}

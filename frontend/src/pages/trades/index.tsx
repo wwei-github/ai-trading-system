@@ -610,7 +610,7 @@ const TradesPage = () => {
           </Button>,
         ]}
         width={640}
-        destroyOnClose
+        destroyOnHidden
       >
         {!importResult ? (
           <>

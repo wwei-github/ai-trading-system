@@ -122,7 +122,7 @@ const ProviderFormModal = ({ open, provider, onClose, onSuccess }: Props) => {
       onCancel={onClose}
       onOk={handleSubmit}
       width={560}
-      destroyOnClose
+      destroyOnHidden
     >
       <Form form={form} layout="vertical" initialValues={{ type: 'openai_compatible' }}>
         <Form.Item label="类型" name="type" rules={[{ required: true }]}>

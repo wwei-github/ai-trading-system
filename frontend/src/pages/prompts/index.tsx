@@ -295,7 +295,7 @@ const PromptsPage = () => {
         cancelText="取消"
         confirmLoading={createMutation.isPending || updateMutation.isPending}
         width={720}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical">
           <Form.Item
