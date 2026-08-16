@@ -5,7 +5,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -55,6 +55,26 @@ class AIBacktestContext:
         self.all_klines: List[Dict] = []
         self.preheat_count = PREHEAT_COUNT
 
+        # ========== 08-AI回测K线分析优化 新增字段 ==========
+        # 持仓免分析状态
+        self.ai_analysis_paused: bool = False
+
+        # 两级 AI 过滤统计
+        self.precheck_total: int = 0
+        self.precheck_triggered: int = 0
+
+        # 最后一次 AI 分析窗口信息
+        self.last_ai_kline_window: Optional[Tuple[int, int]] = None
+        self.last_trigger_reason: Optional[str] = None
+
+        # 本地模型预筛配置
+        self.use_local_model: bool = config.get("use_local_model", False)
+        self.local_model_klines: int = config.get("local_model_klines", 10)
+
+        # 关键位（从初始化分析或深度分析中提取）
+        self.key_levels: List[Dict] = []
+        self.initial_analysis: Dict = {}
+
 
 def _check_stop_signal(backtest_id: str) -> bool:
     """检查是否收到停止信号。"""
@@ -68,6 +88,48 @@ def _check_stop_signal(backtest_id: str) -> bool:
         return result is not None
     except Exception:
         return False
+
+
+# ========== 08-AI回测K线分析优化 新增辅助函数 ==========
+
+KEY_LEVEL_THRESHOLD_PCT = 0.005  # 0.5% 阈值
+
+
+def _check_key_level_hit(kline: Dict, key_levels: List[Dict]) -> Optional[Dict]:
+    """检测 K 线是否命中关键位（±0.5% 范围）。
+
+    Returns: 命中的关键位信息，未命中返回 None
+    """
+    close = kline["close"]
+    high = kline["high"]
+    low = kline["low"]
+    for level in key_levels:
+        price = level["price"]
+        delta = price * KEY_LEVEL_THRESHOLD_PCT
+        # 只要 K 线的价格区间 [low, high] 与 [price-delta, price+delta] 相交
+        if high >= (price - delta) and low <= (price + delta):
+            return {
+                **level,
+                "hit_price": close,
+                "distance_pct": abs(close - price) / price * 100,
+            }
+    return None
+
+
+def _append_analysis_log(ctx: AIBacktestContext, kline_index: int,
+                          trigger: str, analysis: Dict) -> None:
+    """追加深度分析日志到上下文。"""
+    if not hasattr(ctx, "_analysis_logs"):
+        ctx._analysis_logs = []
+    log_entry = {
+        "kline_index": kline_index,
+        "trigger": trigger,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "trend": (analysis.get("market_analysis") or {}).get("trend"),
+        "decision": analysis.get("decision"),
+        "confidence": (analysis.get("trade_plan") or {}).get("confidence"),
+    }
+    ctx._analysis_logs.append(log_entry)
 
 
 @celery_app.task(bind=True, max_retries=0, acks_late=True)
@@ -105,7 +167,16 @@ async def _make_local_session_maker():
 
 
 async def _run_backtest_async(backtest_id: str):
-    """异步执行回测主逻辑。"""
+    """异步执行回测主逻辑。
+
+    严格同步约束：
+    - 禁止在本函数 for 循环内部使用 asyncio.create_task / gather / ensure_future
+    - 所有 AI 调用、指标计算、DB 操作必须显式 await
+    - SSE progress 推送是 fire-and-forget（已封装，不阻塞）
+    - 目标：AI 完整处理完 K 线 N 后，才推进到 N+1
+    """
+    from app.utils.ai_market_analyzer import AI_ANALYSIS_MAX_WINDOW
+
     local_engine, local_session_maker = await _make_local_session_maker()
     try:
         async with local_session_maker() as session:
@@ -125,7 +196,7 @@ async def _run_backtest_async(backtest_id: str):
             backtest.started_at = datetime.now(timezone.utc)
             await session.commit()
 
-            # 构建上下文
+            # 构建上下文（含新增字段）
             config = {
                 "strategy_id": str(backtest.strategy_id),
                 "symbol": backtest.symbol,
@@ -136,6 +207,9 @@ async def _run_backtest_async(backtest_id: str):
                 "fee_rate": float(backtest.fee_rate),
                 "use_ai": backtest.use_ai,
                 "strategy_rules": backtest.strategy.rules if backtest.strategy else {},
+                # 08-AI回测K线分析优化 新增配置
+                "use_local_model": backtest.use_local_model,
+                "local_model_klines": backtest.local_model_klines,
             }
             ctx = AIBacktestContext(backtest_id, config)
 
@@ -158,17 +232,50 @@ async def _run_backtest_async(backtest_id: str):
                           message="正在获取预热数据...")
         preheat_klines = _fetch_klines(ctx.symbol, ctx.timeframe, ctx.start_time, PREHEAT_COUNT)
         ctx.preheat_count = len(preheat_klines)
+        ctx.all_klines = preheat_klines  # 先只放预热数据
 
-        # 3. 拉取回测区间数据
+        # 3. 初始化 AI 分析（预热 300 根）
+        analyzer = AIMarketAnalyzer(session_maker=local_session_maker)
+        if ctx.use_ai_real:
+            _publish_progress(backtest_id, "preheat", 3, 0, ctx.total_klines, 0,
+                              message="正在分析预热数据，提取趋势和关键位...")
+            try:
+                initial_result = await analyzer.analyze_initial(
+                    kline_window=ctx.all_klines,
+                    strategy_rules=ctx.strategy_rules,
+                    symbol=ctx.symbol,
+                    timeframe=ctx.timeframe,
+                )
+                ctx.initial_analysis = initial_result
+                ctx.key_levels = initial_result.get("key_levels", [])
+                logger.info(f"Initial analysis: trend={initial_result.get('trend')}, "
+                            f"key_levels={len(ctx.key_levels)}")
+            except Exception as e:
+                logger.warning(f"Initial AI analysis failed: {e}")
+                ctx.initial_analysis = {}
+                ctx.key_levels = []
+
+        # 4. 拉取回测区间数据
         _publish_progress(backtest_id, "preheat", 5, 0, ctx.total_klines, 0,
                           message="正在拉取回测区间 K 线数据...")
         backtest_klines = _fetch_backtest_klines(ctx)
         ctx.all_klines = preheat_klines + backtest_klines
 
-        # 4. 逐根推进主循环
-        analyzer = AIMarketAnalyzer(session_maker=local_session_maker)
+        # 5. 初始化本地模型预筛器
+        local_prechecker = None
+        if ctx.use_local_model:
+            try:
+                from app.utils.local_model_prechecker import LocalModelPrechecker
+                local_prechecker = LocalModelPrechecker(session_maker=local_session_maker)
+                logger.info(f"LocalModelPrechecker initialized for backtest {backtest_id}")
+            except Exception as e:
+                logger.warning(f"Failed to init LocalModelPrechecker: {e}, fallback to main AI precheck")
+                ctx.use_local_model = False
+
+        # 6. 初始化执行器
         executor = DecisionExecutor(ctx)
 
+        # 7. 逐根推进主循环
         for idx, kline in enumerate(backtest_klines):
             ctx.current_kline_index = idx + 1
 
@@ -186,33 +293,93 @@ async def _run_backtest_async(backtest_id: str):
             # 计算技术指标
             indicators = _calculate_indicators(kline_data)
 
-            # AI 分析（或规则引擎）
+            # ========== 核心优化：两级 AI 过滤 + 持仓免分析 + 关键位检测 ==========
             ai_result = None
-            if ctx.use_ai_real:
-                try:
-                    ai_result = await analyzer.analyze(
-                        symbol=ctx.symbol,
-                        timeframe=ctx.timeframe,
-                        kline=kline,
-                        indicators=indicators,
-                        position=ctx.current_position,
-                        strategy_rules=ctx.strategy_rules,
-                        account_status={
-                            "initial_capital": ctx.initial_capital,
-                            "current_equity": ctx.current_equity,
-                            "available_cash": ctx.available_cash,
-                        },
-                        current_kline_index=idx + 1,
-                        total_klines=ctx.total_klines,
-                    )
-                    ctx.ai_call_count += 1
-                    ctx.ai_fail_count = 0
-                except Exception as e:
-                    ctx.ai_fail_count += 1
-                    logger.warning(f"AI call failed at kline {idx+1}: {e}")
-                    if ctx.ai_fail_count >= 3:
-                        ctx.use_ai_real = False
-                        logger.warning("AI 连续失败 3 次，降级为规则引擎")
+            had_position = ctx.current_position is not None
+            should_analyze = ctx.use_ai_real
+
+            if should_analyze:
+                if had_position:
+                    # 有持仓：跳过 AI 分析
+                    should_analyze = False
+                    ctx.ai_analysis_paused = True
+                else:
+                    # 无持仓：先检查关键位命中
+                    key_level_hit = _check_key_level_hit(kline, ctx.key_levels)
+
+                    if key_level_hit is not None:
+                        # 命中关键位 → 跳过预筛，直接进入深度分析
+                        should_analyze = True
+                        ctx.last_trigger_reason = f"key_level_hit:{key_level_hit['type']}"
+                        logger.debug(f"Key level hit at kline {idx+1}: {key_level_hit}")
+                    else:
+                        # 未命中关键位 → 走两级预筛
+                        # 第一级：AI 粗略预筛（主 AI 或 本地模型）
+                        precheck_passed = False
+                        if ctx.use_local_model and local_prechecker:
+                            # 模式 B：本地模型预筛
+                            local_window = kline_data[-ctx.local_model_klines:]
+                            precheck_passed = await local_prechecker.precheck(
+                                kline_window=local_window,
+                                strategy_rules=ctx.strategy_rules,
+                                symbol=ctx.symbol,
+                                timeframe=ctx.timeframe,
+                            )
+                            ctx.last_trigger_reason = "local_model" if precheck_passed else None
+                        else:
+                            # 模式 A（默认）：主 AI 粗略预筛
+                            quick_window = kline_data[-min(ctx.local_model_klines, len(kline_data)):]
+                            precheck_passed = await analyzer.quick_precheck(
+                                kline_window=quick_window,
+                                strategy_rules=ctx.strategy_rules,
+                                symbol=ctx.symbol,
+                                timeframe=ctx.timeframe,
+                            )
+                            ctx.last_trigger_reason = "ai_precheck" if precheck_passed else None
+
+                        ctx.precheck_total += 1
+                        if precheck_passed:
+                            ctx.precheck_triggered += 1
+                            should_analyze = True
+                        else:
+                            should_analyze = False
+                            logger.debug(f"Precheck not passed at kline {idx+1}")
+
+                # 第二级：AI 深度分析（预筛通过或关键位命中时）
+                if should_analyze:
+                    window_start = max(0, len(kline_data) - AI_ANALYSIS_MAX_WINDOW)
+                    kline_window = kline_data[window_start:]
+                    ctx.last_ai_kline_window = (window_start, len(kline_data) - 1)
+
+                    try:
+                        ai_result = await analyzer.analyze_with_window(
+                            symbol=ctx.symbol,
+                            timeframe=ctx.timeframe,
+                            kline_window=kline_window,
+                            indicators=indicators,
+                            position=ctx.current_position,
+                            strategy_rules=ctx.strategy_rules,
+                            account_status={
+                                "initial_capital": ctx.initial_capital,
+                                "current_equity": ctx.current_equity,
+                                "available_cash": ctx.available_cash,
+                            },
+                            current_kline_index=idx + 1,
+                            total_klines=ctx.total_klines,
+                        )
+                        ctx.ai_call_count += 1
+                        ctx.ai_fail_count = 0
+
+                        # 深度分析后更新关键位
+                        if "key_levels" in ai_result:
+                            ctx.key_levels = ai_result["key_levels"]
+                        _append_analysis_log(ctx, idx + 1, trigger=ctx.last_trigger_reason or "deep_analysis", analysis=ai_result)
+                    except Exception as e:
+                        ctx.ai_fail_count += 1
+                        logger.warning(f"AI deep analysis failed at kline {idx+1}: {e}")
+                        if ctx.ai_fail_count >= 3:
+                            ctx.use_ai_real = False
+                            logger.warning("AI 连续失败 3 次，降级为规则引擎")
 
             # 提取 AI 分析摘要（用于 SSE 推送）
             ai_analysis = None
@@ -231,9 +398,52 @@ async def _run_backtest_async(backtest_id: str):
             # 执行决策
             executor.execute(kline, ai_result, indicators)
 
+            # === 平仓检测：上一根有持仓、这一根没了 ===
+            if had_position and ctx.current_position is None:
+                logger.info(f"Position closed at kline {idx+1}, refreshing key levels")
+                window_start = max(0, len(kline_data) - AI_ANALYSIS_MAX_WINDOW)
+                kline_window = kline_data[window_start:]
+                try:
+                    refresh_result = await analyzer.analyze_with_window(
+                        symbol=ctx.symbol,
+                        timeframe=ctx.timeframe,
+                        kline_window=kline_window,
+                        indicators=indicators,
+                        position=None,
+                        strategy_rules=ctx.strategy_rules,
+                        account_status={
+                            "initial_capital": ctx.initial_capital,
+                            "current_equity": ctx.current_equity,
+                            "available_cash": ctx.available_cash,
+                        },
+                        current_kline_index=idx + 1,
+                        total_klines=ctx.total_klines,
+                    )
+                    # 覆盖更新关键位
+                    ctx.key_levels = refresh_result.get("key_levels", [])
+                    ctx.initial_analysis["trend"] = (refresh_result.get("market_analysis") or {}).get("trend")
+                    ctx.initial_analysis["key_levels"] = ctx.key_levels
+                    ctx.ai_call_count += 1
+                    _append_analysis_log(ctx, idx + 1, trigger="position_closed", analysis=refresh_result)
+                except Exception as e:
+                    logger.warning(f"Post-close key level refresh failed: {e}")
+
+                # 恢复 AI 分析
+                ctx.ai_analysis_paused = False
+
+            # === 持仓免分析恢复检查 ===
+            if ctx.current_position is None and ctx.ai_analysis_paused:
+                ctx.ai_analysis_paused = False
+                logger.info(f"Position closed, resuming AI analysis at kline {idx+1}")
+
             # 更新进度（每 10 根或最后 10 根每根都推）
             if idx % 10 == 0 or idx >= ctx.total_klines - 10:
                 progress = 5 + int((idx + 1) / ctx.total_klines * 90)
+                current_stage_detail = "suspended"
+                if had_position:
+                    current_stage_detail = "holding"
+                elif ctx.current_position is None:
+                    current_stage_detail = "precheck" if should_analyze else "rule"
                 _publish_progress(
                     backtest_id, "running", progress,
                     idx + 1, ctx.total_klines, ctx.total_trades,
@@ -248,21 +458,28 @@ async def _run_backtest_async(backtest_id: str):
                         "volume_ma20": indicators.get("volume_ma20"),
                     },
                     message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
+                    # 新增字段
+                    precheck_total=ctx.precheck_total,
+                    precheck_triggered=ctx.precheck_triggered,
+                    ai_call_count=ctx.ai_call_count,
+                    current_stage_detail=current_stage_detail,
                 )
 
-        # 5. 生成总结
+        # 8. 生成总结
         _publish_progress(backtest_id, "summary", 98, ctx.total_klines, ctx.total_klines,
                           ctx.total_trades, message="正在生成总结报告...")
         summary = _calculate_summary(ctx)
 
-        # 6. 保存交易记录并完成
+        # 9. 保存交易记录并完成
         await _save_trades_and_finalize(backtest_id, ctx, local_session_maker, "completed", summary)
 
-        # 7. 推送完成事件
+        # 10. 推送完成事件
         _publish_progress(backtest_id, "done", 100, ctx.total_klines, ctx.total_klines,
                           ctx.total_trades, message="回测完成")
 
-        logger.info(f"AI backtest {backtest_id} completed: {ctx.total_trades} trades")
+        logger.info(f"AI backtest {backtest_id} completed: {ctx.total_trades} trades, "
+                    f"precheck={ctx.precheck_total}/{ctx.precheck_triggered}, "
+                    f"ai_calls={ctx.ai_call_count}")
     finally:
         await local_engine.dispose()
 
@@ -328,6 +545,10 @@ async def _save_trades_and_finalize(
                 pnl_pct=t.get("pnl_pct"),
                 fee=t.get("fee"),
                 extra=t.get("extra"),
+                # 08-AI回测K线分析优化 新增字段
+                ai_window_start=t.get("ai_window_start"),
+                ai_window_end=t.get("ai_window_end"),
+                trigger_reason=t.get("trigger_reason"),
             )
             session.add(trade)
 
@@ -335,6 +556,14 @@ async def _save_trades_and_finalize(
         backtest.status = status
         backtest.completed_klines = ctx.current_kline_index
         backtest.completed_at = datetime.now(timezone.utc)
+
+        # 08-AI回测K线分析优化 持久化新增字段
+        backtest.ai_call_count = ctx.ai_call_count
+        backtest.precheck_total = ctx.precheck_total
+        backtest.precheck_triggered = ctx.precheck_triggered
+        backtest.initial_analysis = ctx.initial_analysis or None
+        backtest.ai_analysis_logs = getattr(ctx, "_analysis_logs", None)
+
         if status == "completed" and summary:
             backtest.result_summary = summary
         elif status == "cancelled":
@@ -354,8 +583,13 @@ def _publish_progress(
     current_position: Optional[dict] = None, message: str = "",
     ai_analysis: Optional[dict] = None,
     indicators: Optional[dict] = None,
+    # 08-AI回测K线分析优化 新增参数
+    precheck_total: int = 0,
+    precheck_triggered: int = 0,
+    ai_call_count: int = 0,
+    current_stage_detail: str = "",
 ):
-    """推送进度到 Redis Pub/Sub（增加 AI 分析字段）。
+    """推送进度到 Redis Pub/Sub。
 
     使用 settings.REDIS_URL 直接创建同步 Redis 连接，
     避免依赖模块级 async redis_client（Celery 子进程中可能不可用）。
@@ -373,6 +607,11 @@ def _publish_progress(
             "current_trades": current_trades,
             "current_position": current_position,
             "message": message,
+            # 08-AI回测K线分析优化 新增字段
+            "precheck_total": precheck_total,
+            "precheck_triggered": precheck_triggered,
+            "ai_call_count": ai_call_count,
+            "current_stage_detail": current_stage_detail,
         }
         if ai_analysis is not None:
             payload["ai_analysis"] = ai_analysis
@@ -533,6 +772,14 @@ def _calculate_summary(ctx: AIBacktestContext) -> Dict[str, Any]:
         "ai_calls": ctx.ai_call_count,
         "open_count": len(trades),
         "close_reasons": close_reasons,
+        # 08-AI回测K线分析优化 新增统计
+        "precheck_total": ctx.precheck_total,
+        "precheck_triggered": ctx.precheck_triggered,
+        "precheck_trigger_rate": round(
+            ctx.precheck_triggered / ctx.precheck_total * 100, 2
+        ) if ctx.precheck_total > 0 else 0,
+        "use_local_model": ctx.use_local_model,
+        "initial_trend": ctx.initial_analysis.get("trend", "") if ctx.initial_analysis else "",
     }
 
 
