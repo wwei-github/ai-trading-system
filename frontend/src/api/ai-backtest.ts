@@ -7,12 +7,24 @@ import type {
   AIBacktestHistoryItem,
   AIBacktestAnalysisResult,
   AIBacktestOptimizeResult,
+  MergeOptimizeRequest,
+  MergeOptimizeResult,
+  MultiBacktestCreateResult,
+  PromptTemplate,
 } from '@/types';
 
 export const aiBacktestApi = {
   /** 创建并启动 AI 回测 */
   create: (data: AIBacktestCreateRequest) =>
     request.post<AIBacktestCreateResponse>('/strategies/ai-backtest', data),
+
+  /** 创建多策略回测 */
+  createMulti: (data: AIBacktestCreateRequest & { strategy_ids: string[] }) =>
+    request.post<MultiBacktestCreateResult>('/strategies/ai-backtest/multi', data),
+
+  /** 多策略融合优化 */
+  mergeOptimize: (data: MergeOptimizeRequest) =>
+    request.post<MergeOptimizeResult>('/strategies/ai-backtest/merge-optimize', data),
 
   /** 获取回测详情 */
   getDetail: (id: string) =>
@@ -59,6 +71,29 @@ export const aiBacktestApi = {
   /** 获取 SSE 进度 URL */
   getProgressUrl: (id: string) =>
     `/api/v1/strategies/ai-backtest/${id}/progress`,
+};
+
+// Prompt 模板 API
+export const promptTemplateApi = {
+  /** 获取模板列表 */
+  list: (category?: string) =>
+    request.get<PromptTemplate[]>('/prompt-templates', { params: { category } }),
+
+  /** 创建模板 */
+  create: (data: Pick<PromptTemplate, 'name' | 'category' | 'content' | 'description' | 'variables'>) =>
+    request.post<PromptTemplate>('/prompt-templates', data),
+
+  /** 更新模板 */
+  update: (id: string, data: Partial<Pick<PromptTemplate, 'name' | 'content' | 'description' | 'variables'>>) =>
+    request.put<PromptTemplate>(`/prompt-templates/${id}`, data),
+
+  /** 删除模板 */
+  remove: (id: string) =>
+    request.delete<boolean>(`/prompt-templates/${id}`),
+
+  /** 设为默认 */
+  setDefault: (id: string) =>
+    request.post<PromptTemplate>(`/prompt-templates/${id}/set-default`),
 };
 
 export default aiBacktestApi;

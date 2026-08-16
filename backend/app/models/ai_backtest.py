@@ -97,12 +97,12 @@ class AIBacktest(Base):
 
     # 深度分析日志
     ai_analysis_logs: Mapped[Optional[Any]] = mapped_column(
-        JSONB, nullable=True, default_factory=list, comment="深度分析日志列表（复盘用）"
+        JSONB, nullable=True, default=list, comment="深度分析日志列表（复盘用）"
     )
 
     # Prompt 模板 ID 映射
     prompt_template_ids: Mapped[Optional[Any]] = mapped_column(
-        JSONB, nullable=True, default_factory=dict,
+        JSONB, nullable=True, default=dict,
         comment="使用的 Prompt 模板 ID 映射 {category: template_id}"
     )
 

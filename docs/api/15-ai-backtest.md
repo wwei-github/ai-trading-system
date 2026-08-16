@@ -47,7 +47,8 @@ POST /strategies/ai-backtest
   "fee_rate": 0.001,
   "use_ai": true,
   "use_local_model": false,
-  "local_model_klines": 10
+  "local_model_klines": 10,
+  "strategy_ids": null
 }
 ```
 
@@ -62,12 +63,13 @@ POST /strategies/ai-backtest
 | mode | string | 是 | kline_count | 可选：kline_count / time_span |
 | kline_count | int | 否 | null | mode=kline_count 时必填，1~5000 |
 | time_span_value | int | 否 | null | mode=time_span 时必填，1~365 |
-| time_span_unit | string | 否 | null | mode=time_span 时必填，hour / day |
+| time_span_unit | string | 否 | day | mode=time_span 时必填，hour / day |
 | initial_capital | float | 否 | 10000.00 | 初始资金，100~100,000,000 |
 | fee_rate | float | 否 | 0.001 | 手续费率，0~0.01 |
 | use_ai | bool | 否 | true | 是否启用 AI 决策 |
 | use_local_model | bool | 否 | false | 是否启用本地模型预筛（Ollama） |
-| local_model_klines | int | 否 | 10 | 本地模型预筛 K 线数量，5~50 |
+| local_model_klines | int | 否 | 10 | 本地模型预筛 K 线数量，1~100 |
+| strategy_ids | UUID[] | 否 | null | 多策略融合时，参与优化的策略 ID 列表 |
 
 **返回结果：**
 
@@ -104,8 +106,8 @@ POST /strategies/ai-backtest
     "precheck_total": 0,
     "precheck_triggered": 0,
     "initial_analysis": null,
-    "ai_analysis_logs": null,
-    "prompt_template_ids": null,
+    "ai_analysis_logs": [],
+    "prompt_template_ids": {},
     "created_at": "2026-08-14T10:49:00Z"
   }
 }
@@ -161,6 +163,11 @@ GET /strategies/ai-backtest/list
         "total_pnl": 520.15,
         "win_rate": 65.5,
         "trade_count": 18,
+        "use_local_model": false,
+        "ai_call_count": 50,
+        "precheck_total": 500,
+        "precheck_triggered": 50,
+        "parent_backtest_id": null,
         "created_at": "2026-08-14T10:49:00Z",
         "completed_at": "2026-08-14T10:51:00Z"
       }
@@ -205,6 +212,8 @@ GET /strategies/ai-backtest/{backtest_id}
     "initial_capital": 10000.00,
     "fee_rate": 0.001,
     "use_ai": true,
+    "use_local_model": false,
+    "local_model_klines": 10,
     "status": "completed",
     "total_klines": 500,
     "completed_klines": 500,
@@ -240,6 +249,30 @@ GET /strategies/ai-backtest/{backtest_id}
         "score": 72
       }
     },
+    "parent_backtest_id": null,
+    "strategy_ids": null,
+    "ai_call_count": 50,
+    "precheck_total": 500,
+    "precheck_triggered": 50,
+    "initial_analysis": {
+      "trend": "bullish",
+      "trend_summary": "短期多头趋势",
+      "key_levels": [
+        {"type": "support", "price": 60500},
+        {"type": "resistance", "price": 62000}
+      ]
+    },
+    "ai_analysis_logs": [
+      {
+        "kline_index": 250,
+        "trigger": "ai_precheck",
+        "timestamp": "2026-08-14T10:50:00Z",
+        "trend": "bullish",
+        "decision": "open_long",
+        "confidence": 4
+      }
+    ],
+    "prompt_template_ids": {},
     "created_at": "2026-08-14T10:49:00Z"
   }
 }
@@ -266,11 +299,21 @@ GET /strategies/ai-backtest/{backtest_id}
 | open_count | int | 开仓次数 |
 | close_reasons | object | 平仓原因分布 |
 | ai_analysis | object | AI 分析结果（可选） |
-| precheck_total | int | 预筛总次数 |
+
+**回测详情顶层新增字段（08-AI回测K线分析优化）：**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| parent_backtest_id | UUID | 多策略融合父回测 ID |
+| strategy_ids | UUID[] | 参与融合的策略 ID 列表 |
+| ai_call_count | int | AI 深度分析调用次数 |
+| precheck_total | int | 快速预筛总次数 |
 | precheck_triggered | int | 预筛触发深度分析次数 |
-| precheck_trigger_rate | float | 预筛触发率（%） |
 | use_local_model | bool | 是否启用本地模型预筛 |
-| initial_trend | string | 初始化分析趋势 bullish/bearish/neutral |
+| local_model_klines | int | 本地模型预筛 K 线数量 |
+| initial_analysis | object | 初始化 300 根 K 线分析结果（趋势 + 关键位） |
+| ai_analysis_logs | array | 深度分析日志列表 |
+| prompt_template_ids | object | Prompt 模板 ID 映射 {category: template_id} |
 
 ---
 
@@ -362,13 +405,13 @@ SSE（Server-Sent Events）流式推送回测进度。
 **事件数据：**
 
 ```
-data: {"backtest_id":"UUID","stage":"preheat","progress":2,"current_kline":0,"total_klines":500,"current_trades":0,"current_position":null,"message":"正在获取预热数据..."}
+data: {"backtest_id":"UUID","stage":"preheat","progress":2,"current_kline":0,"total_klines":500,"current_trades":0,"current_position":null,"message":"正在获取预热数据...","precheck_total":0,"precheck_triggered":0,"ai_call_count":0,"current_stage_detail":""}
 
-data: {"backtest_id":"UUID","stage":"running","progress":50,"current_kline":250,"total_klines":500,"current_trades":5,"current_position":{"direction":"long","entry_price":61200.50,"quantity":0.049,"unrealized_pnl":45.20},"ai_analysis":{"trend":"bullish","strength":4,"summary":"多头趋势明确","decision":"hold","confidence":4,"reason":"均线多头排列"},"indicators":{"ma5":61500,"ma10":61000,"rsi_14":62},"message":"正在推进第 250/500 根 K 线"}
+data: {"backtest_id":"UUID","stage":"running","progress":50,"current_kline":250,"total_klines":500,"current_trades":5,"current_position":{"direction":"long","entry_price":61200.50,"quantity":0.049,"unrealized_pnl":45.20},"ai_analysis":{"trend":"bullish","strength":4,"summary":"多头趋势明确","decision":"hold","confidence":4,"reason":"均线多头排列"},"indicators":{"ma5":61500,"ma10":61000,"rsi_14":62},"message":"正在推进第 250/500 根 K 线","precheck_total":500,"precheck_triggered":50,"ai_call_count":50,"current_stage_detail":"precheck"}
 
-data: {"backtest_id":"UUID","stage":"summary","progress":98,"current_kline":500,"total_klines":500,"current_trades":18,"current_position":null,"message":"正在生成总结报告..."}
+data: {"backtest_id":"UUID","stage":"summary","progress":98,"current_kline":500,"total_klines":500,"current_trades":18,"current_position":null,"message":"正在生成总结报告...","precheck_total":500,"precheck_triggered":50,"ai_call_count":50,"current_stage_detail":""}
 
-data: {"backtest_id":"UUID","stage":"done","progress":100,"current_kline":500,"total_klines":500,"current_trades":18,"current_position":null,"message":"回测完成"}
+data: {"backtest_id":"UUID","stage":"done","progress":100,"current_kline":500,"total_klines":500,"current_trades":18,"current_position":null,"message":"回测完成","precheck_total":500,"precheck_triggered":50,"ai_call_count":50,"current_stage_detail":""}
 
 data: [DONE]
 ```
@@ -402,9 +445,9 @@ data: [DONE]
 | precheck_total | int | 预筛总次数（08优化） |
 | precheck_triggered | int | 预筛触发深度分析次数（08优化） |
 | ai_call_count | int | AI 深度分析调用次数（08优化） |
-| current_stage_detail | string | 当前阶段详情：suspended / holding / precheck / rule（08优化） |
-| initial_analysis | object | 初始化分析结果（趋势+关键位）（08优化，已完成回测时） |
-| ai_analysis_logs | array | 深度分析日志列表（08优化，已完成回测时） |
+| current_stage_detail | string | 当前阶段详情：precheck / deep_analysis / rule / suspended / holding（08优化） |
+| initial_analysis | object | 初始化分析结果（趋势+关键位），已完成回测时附加（08优化） |
+| ai_analysis_logs | array | 深度分析日志列表，已完成回测时附加（08优化） |
 
 **注意：**
 - 若回测已完成或失败，SSE 直接返回最终状态并立即结束
@@ -612,7 +655,8 @@ POST /strategies/ai-backtest/{backtest_id}/merge-optimize
   "strategy_ids": ["UUID1", "UUID2", "UUID3"],
   "symbol": "BTC/USDT",
   "timeframe": "15m",
-  "name": "融合策略名称"
+  "name": "融合策略名称",
+  "description": "融合 desc"
 }
 ```
 
@@ -624,6 +668,7 @@ POST /strategies/ai-backtest/{backtest_id}/merge-optimize
 | symbol | string | 是 | - | 交易对 |
 | timeframe | string | 是 | - | 时间周期 |
 | name | string | 否 | 自动生成 | 融合策略名称 |
+| description | string | 否 | null | 融合策略描述 |
 
 **处理流程：**
 1. 验证所有策略存在且属于当前用户
@@ -714,6 +759,24 @@ GET /api/v1/ai/prompt-templates
 GET /api/v1/ai/prompt-templates/{template_id}
 ```
 
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "id": "UUID",
+    "category": "initial_analysis",
+    "name": "初始化分析模板 v1",
+    "content": "你是一个专业的加密货币市场分析师...",
+    "is_active": true,
+    "version": 1,
+    "created_at": "2026-08-15T03:00:00Z",
+    "updated_at": null
+  }
+}
+```
+
 ### 11.3 创建模板
 
 ```
@@ -740,6 +803,24 @@ POST /api/v1/ai/prompt-templates
 | content | string | 是 | - | 模板内容，支持 {} 占位符 |
 | is_active | bool | 否 | true | 是否启用 |
 
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "id": "UUID",
+    "category": "initial_analysis",
+    "name": "初始化分析模板 v1",
+    "content": "你是一个专业的加密货币市场分析师...",
+    "is_active": true,
+    "version": 1,
+    "created_at": "2026-08-15T03:00:00Z",
+    "updated_at": null
+  }
+}
+```
+
 ### 11.4 更新模板
 
 ```
@@ -758,10 +839,39 @@ PATCH /api/v1/ai/prompt-templates/{template_id}
 
 **注意：** 每次更新自动将版本号 `version + 1`
 
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "id": "UUID",
+    "category": "initial_analysis",
+    "name": "初始化分析模板 v2",
+    "content": "更新后的模板内容...",
+    "is_active": true,
+    "version": 2,
+    "created_at": "2026-08-15T03:00:00Z",
+    "updated_at": "2026-08-15T04:00:00Z"
+  }
+}
+```
+
 ### 11.5 删除模板
 
 ```
 DELETE /api/v1/ai/prompt-templates/{template_id}
+```
+
+**返回结果：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "status": "deleted"
+  }
+}
 ```
 
 ---

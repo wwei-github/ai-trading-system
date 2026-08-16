@@ -754,3 +754,505 @@ interface MultiBacktestState {
 | 融合优化执行   | 确认调用 mergeOptimize API         |
 | 进度展示优化   | 确认预筛统计、持仓暂停状态正确展示 |
 | 多策略回测 SSE | 确认每个子回测的进度正确推送       |
+
+---
+
+## 11. 思维导图补充需求（前端实现）
+
+### 11.1 类型定义扩展
+
+```typescript
+// frontend/src/types/ai-backtest.ts
+
+// 关键位
+export interface KeyLevel {
+  type: 'support' | 'resistance';
+  price: number;
+  hit_price?: number;
+  distance_pct?: number;
+}
+
+// 开单事件
+export interface LatestTradeEvent {
+  id: string;
+  direction: 'long' | 'short';
+  entry_price: number;
+  stop_loss: number;
+  take_profit: number;
+  quantity: number;
+  created_at: string;
+}
+
+// 平仓事件
+export interface ClosedTradeEvent {
+  id: string;
+  direction: 'long' | 'short';
+  entry_price: number;
+  exit_price: number;
+  pnl: number;
+  pnl_pct: number;
+  reason: 'stop_loss' | 'take_profit' | 'manual' | 'rule';
+  closed_at: string;
+}
+
+// AI 深度分析摘要（SSE推送）
+export interface AIAnalysisMini {
+  trend: 'bullish' | 'bearish' | 'neutral';
+  key_levels: KeyLevel[];
+  decision: 'open_long' | 'open_short' | 'close_long' | 'close_short' | 'hold';
+  confidence: number;
+  reasoning: string;
+}
+
+// 深度分析日志（历史复盘用）
+export interface AIAnalysisLogItem {
+  kline_index: number;
+  trigger: 'precheck_pass' | 'key_level_hit' | 'position_closed' | 'initial';
+  trigger_reason: string;
+  analysis: AIAnalysisMini;
+  created_at: string;
+}
+
+// 初始化分析结果
+export interface InitialAnalysis {
+  trend: 'bullish' | 'bearish' | 'neutral';
+  trend_summary: string;
+  key_levels: KeyLevel[];
+}
+
+// Prompt 模板
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  category: 'backtest_precheck' | 'deep_analysis' | 'merge_optimize' | 'initial_analysis';
+  content: string;
+  description?: string;
+  variables?: Record<string, string>;
+  is_default: boolean;
+  is_system: boolean;
+  created_at: string;
+}
+
+// Progress payload 新增
+export interface AIBacktestProgress {
+  // ... 现有字段 ...
+  precheck_total?: number;
+  precheck_triggered?: number;
+  precheck_mode?: string;
+  has_position?: boolean;
+  ai_analysis_paused?: boolean;
+  analysis_window?: { start: number; end: number; size: number };
+  trigger_reason?: string;
+
+  // 思维导图新增
+  kline_window?: Array<{ open: number; high: number; low: number; close: number; volume: number; time: string }>;
+  current_kline_index?: number;
+  latest_trade?: LatestTradeEvent;          // 开单事件（单次）
+  closed_trade?: ClosedTradeEvent;          // 平仓事件（单次）
+  ai_analysis?: AIAnalysisMini;             // AI 分析摘要
+  key_levels?: KeyLevel[];                  // 最新关键位
+  trend?: 'bullish' | 'bearish' | 'neutral';
+}
+
+// AIBacktestDetail 扩展
+export interface AIBacktestDetail {
+  // ... 现有字段 ...
+  initial_analysis?: InitialAnalysis;
+  ai_analysis_logs?: AIAnalysisLogItem[];
+  prompt_template_ids?: Record<string, string | null>;
+}
+
+// AIBacktestConfig 扩展
+export interface AIBacktestConfig {
+  // ... 现有字段 ...
+  promptTemplateIds?: Record<string, string | null>;
+}
+```
+
+### 11.2 API 扩展
+
+```typescript
+// frontend/src/api/ai-backtest.ts
+export const aiBacktestApi = {
+  // ... 现有 ...
+};
+
+// 新增：Prompt 模板 API
+import { request } from '@/utils/request';
+import type { PromptTemplate } from '@/types/ai-backtest';
+
+export const promptTemplateApi = {
+  list: (category?: string) =>
+    request.get<PromptTemplate[]>('/prompt-templates', { params: { category } }),
+
+  create: (data: Pick<PromptTemplate, 'name' | 'category' | 'content' | 'description' | 'variables'>) =>
+    request.post<PromptTemplate>('/prompt-templates', data),
+
+  update: (id: string, data: Partial<Pick<PromptTemplate, 'name' | 'content' | 'description' | 'variables'>>) =>
+    request.put<PromptTemplate>(`/prompt-templates/${id}`, data),
+
+  remove: (id: string) =>
+    request.delete<boolean>(`/prompt-templates/${id}`),
+};
+
+// 系统配置 API：确保 AI 配置表单中移除 api_key
+// GET /system/configs/ai 返回时已剔除 api_key；POST/PUT 时也自动忽略
+```
+
+### 11.3 回测进度动画（K 线滚动 + 开单标记）
+
+#### 组件：AIBacktestKlineChart（新增）
+
+```tsx
+// frontend/src/pages/strategies/components/AIBacktestKlineChart.tsx
+/**
+ * 回测进度动画图表
+ * - 接收 SSE 的 kline_window：最多 300 根，滚动渲染
+ * - 关键位：画线标记支撑/压力
+ * - 开单事件：在开仓价处画多/空图标
+ * - 平仓事件：画虚线并显示盈亏
+ */
+import React, { useEffect, useRef, useMemo } from 'react';
+import { useTheme } from 'antd';
+
+interface Props {
+  klineWindow: any[];                       // SSE 推送的滚动 K 线
+  keyLevels: KeyLevel[];                    // 关键位
+  trades: Array<{ event: 'open' | 'close'; data: any }>;  // 已发生的开/平仓事件列表
+  currentIndex?: number;                    // 当前推进到第几根
+  height?: number;
+}
+
+export const AIBacktestKlineChart: React.FC<Props> = ({
+  klineWindow, keyLevels, trades, currentIndex, height = 360,
+}) => {
+  // 使用 lightweight-charts（或 ECharts K 线）
+  // 初始化时渲染预热K线，后续 append 追加
+  // 关键位 → priceLine
+  // 开仓 → marker shape 为 arrowUp/arrowDown
+  // 平仓 → marker + pnl 标签
+  // 每次推进到 currentIndex 时，确保最后一根 K 线高亮显示
+  return (
+    <div className="ai-backtest-kline-chart">
+      {/* lightweight-charts / ECharts 渲染 */}
+    </div>
+  );
+};
+```
+
+#### 在 AIBacktestProgress 中集成
+
+```tsx
+{/* 进度动画 K 线图 */}
+<Card size="small" title="回测进度动画" style={{ marginBottom: 16 }}>
+  <AIBacktestKlineChart
+    klineWindow={progress.kline_window || []}
+    keyLevels={progress.key_levels || []}
+    trades={accumulatedTrades}  // 从 SSE latest_trade / closed_trade 累积
+    currentIndex={progress.current_kline_index}
+  />
+</Card>
+```
+
+#### SSE 事件累积（AIBacktestProgress 内部）
+
+```typescript
+const [accumulatedTrades, setAccumulatedTrades] = useState<
+  Array<{ event: 'open' | 'close'; data: any; klineIndex: number }>
+>([]);
+
+useEffect(() => {
+  if (sseProgress?.latest_trade && !seenTradeIds.has(sseProgress.latest_trade.id)) {
+    seenTradeIds.add(sseProgress.latest_trade.id);
+    setAccumulatedTrades(prev => [
+      ...prev,
+      { event: 'open', data: sseProgress.latest_trade, klineIndex: sseProgress.current_kline_index },
+    ]);
+  }
+  if (sseProgress?.closed_trade && !seenTradeIds.has(sseProgress.closed_trade.id + '-close')) {
+    seenTradeIds.add(sseProgress.closed_trade.id + '-close');
+    setAccumulatedTrades(prev => [
+      ...prev,
+      { event: 'close', data: sseProgress.closed_trade, klineIndex: sseProgress.current_kline_index },
+    ]);
+  }
+}, [sseProgress]);
+```
+
+### 11.4 AI 分析数据实时展示
+
+#### 组件：AIAnalysisRealtimePanel（新增或增强现有）
+
+```tsx
+// 展示趋势 + 关键位 + 最新 AI 分析 + 当前持仓
+
+<Card size="small" title="AI 实时分析" style={{ marginBottom: 16 }}>
+  <Space direction="vertical" style={{ width: '100%' }}>
+    {/* 整体趋势标签 */}
+    <Row gutter={8} align="middle">
+      <Col>
+        <Tag color={
+          progress.trend === 'bullish' ? 'red' :
+          progress.trend === 'bearish' ? 'green' : 'default'
+        }>
+          {progress.trend === 'bullish' ? '看涨' : progress.trend === 'bearish' ? '看跌' : '震荡'}
+        </Tag>
+      </Col>
+      <Col>
+        <Text type="secondary">{progress.ai_analysis?.trend_summary || initialAnalysis?.trend_summary}</Text>
+      </Col>
+    </Row>
+
+    {/* 关键位列表 */}
+    <div>
+      <Text strong>关键位: </Text>
+      <Space wrap>
+        {(progress.key_levels || []).map((lvl, i) => (
+          <Tag key={i} color={lvl.type === 'support' ? 'cyan' : 'magenta'}>
+            {lvl.type === 'support' ? '支撑' : '压力'} {lvl.price}
+          </Tag>
+        ))}
+      </Space>
+    </div>
+
+    {/* 最新 AI 分析 */}
+    {progress.ai_analysis && (
+      <div style={{ padding: 8, background: token.colorBgContainer, borderRadius: 4 }}>
+        <Row gutter={8}>
+          <Col span={8}>
+            <Text type="secondary">决策</Text>
+            <div>
+              <Tag color={
+                progress.ai_analysis.decision === 'open_long' ? 'red' :
+                progress.ai_analysis.decision === 'open_short' ? 'green' : 'default'
+              }>
+                {DECISION_LABEL[progress.ai_analysis.decision]}
+              </Tag>
+            </div>
+          </Col>
+          <Col span={8}>
+            <Text type="secondary">置信度</Text>
+            <div>
+              <Rate disabled allowHalf value={progress.ai_analysis.confidence} count={5} />
+            </div>
+          </Col>
+          <Col span={8}>
+            <Text type="secondary">触发</Text>
+            <div>
+              <Tag>{progress.trigger_reason}</Tag>
+            </div>
+          </Col>
+        </Row>
+        <div style={{ marginTop: 8 }}>
+          <Text type="secondary">分析理由:</Text>
+          <Paragraph style={{ marginTop: 4 }} ellipsis={{ rows: 3, expandable: true, symbol: '展开' }}>
+            {progress.ai_analysis.reasoning}
+          </Paragraph>
+        </div>
+      </div>
+    )}
+
+    {/* 当前持仓信息 */}
+    {progress.has_position && progress.current_position && (
+      <Card size="small" type="inner" title="当前持仓">
+        <Descriptions column={2} size="small">
+          <Descriptions.Item label="方向">
+            <Tag color={progress.current_position.direction === 'long' ? 'red' : 'green'}>
+              {progress.current_position.direction === 'long' ? '多单' : '空单'}
+            </Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="开仓价">{progress.current_position.entry_price}</Descriptions.Item>
+          <Descriptions.Item label="止损" type="danger">{progress.current_position.stop_loss}</Descriptions.Item>
+          <Descriptions.Item label="止盈" type="success">{progress.current_position.take_profit}</Descriptions.Item>
+          <Descriptions.Item label="浮动盈亏" span={2}>
+            <Text type={progress.current_position.unrealized_pnl >= 0 ? 'success' : 'danger'}>
+              {progress.current_position.unrealized_pnl?.toFixed(2)} USDT
+              ({progress.current_position.unrealized_pnl_pct?.toFixed(2)}%)
+            </Text>
+          </Descriptions.Item>
+        </Descriptions>
+      </Card>
+    )}
+  </Space>
+</Card>
+```
+
+### 11.5 Prompt 模板管理页面
+
+#### 路由
+
+```
+/routes 新增:
+/system/prompts                     列表页
+/system/prompts/new                 新建
+/system/prompts/:id/edit            编辑
+```
+
+#### 组件：PromptTemplateManagementPage（新增）
+
+```tsx
+// 结构
+// ├── Tabs（按分类切换：预筛模板 / 深度分析模板 / 融合模板 / 初始化模板）
+// ├── 列表 Table（名称、描述、类型、默认、操作）
+// │   ├── 系统模板：不可删除，仅查看/复制为自定义
+// │   └── 自定义模板：编辑/删除/设为默认
+// └── Drawer（编辑或新建模板）
+//       ├── 名称、分类、描述
+//       ├── 内容（TextArea + 代码风格编辑）
+//       └── 支持的变量提示（{变量名} 高亮）
+
+// Tab 与分类映射
+const CATEGORY_OPTIONS = [
+  { value: 'initial_analysis', label: '初始化分析模板' },
+  { value: 'backtest_precheck', label: '回测预筛模板' },
+  { value: 'deep_analysis', label: '深度分析模板' },
+  { value: 'merge_optimize', label: '多策略融合模板' },
+];
+```
+
+### 11.6 回测配置表单：可选 Prompt 模板
+
+在 `AIBacktestConfigForm` 中新增折叠面板：
+
+```tsx
+<Collapse
+  items={[
+    {
+      key: 'prompt_templates',
+      label: (
+        <Space>
+          <FileTextOutlined />
+          <span>AI Prompt 模板（可选）</span>
+          <Tag style={{ marginLeft: 8 }}>高级</Tag>
+        </Space>
+      ),
+      children: (
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Form.Item name={['promptTemplateIds', 'initial_analysis']} label="初始化分析模板">
+            <Select options={tplOpts('initial_analysis')} allowClear placeholder="使用系统默认" />
+          </Form.Item>
+          <Form.Item name={['promptTemplateIds', 'backtest_precheck']} label="预筛分析模板">
+            <Select options={tplOpts('backtest_precheck')} allowClear placeholder="使用系统默认" />
+          </Form.Item>
+          <Form.Item name={['promptTemplateIds', 'deep_analysis']} label="深度分析模板">
+            <Select options={tplOpts('deep_analysis')} allowClear placeholder="使用系统默认" />
+          </Form.Item>
+        </Space>
+      ),
+    },
+  ]}
+  style={{ marginBottom: 16 }}
+  defaultActiveKey={[]}
+/>
+```
+
+提交时将 `prompt_template_ids` 拼入请求体：
+
+```ts
+const payload = {
+  // ...
+  prompt_template_ids: Object.fromEntries(
+    Object.entries(config.promptTemplateIds || {}).filter(([_, v]) => !!v)
+  ),
+};
+```
+
+### 11.7 回测结果：AI 分析日志复盘（历史可查看）
+
+#### 组件：AIAnalysisLogsViewer（AIBacktestResult 内部增强）
+
+```tsx
+// 从 detail.ai_analysis_logs 中读取
+// 展示为 Timeline：时间/触发原因/决策/理由
+
+<Timeline
+  items={(detail?.ai_analysis_logs || []).map(log => ({
+    color: log.trigger === 'key_level_hit' ? 'magenta'
+         : log.trigger === 'position_closed' ? 'orange' : 'blue',
+    children: (
+      <Card size="small" title={
+        <Space>
+          <Tag>K线 {log.kline_index}</Tag>
+          <Tag color={
+            log.trigger === 'precheck_pass' ? 'blue' :
+            log.trigger === 'key_level_hit' ? 'magenta' :
+            log.trigger === 'position_closed' ? 'orange' : 'purple'
+          }>
+            {TRIGGER_LABEL[log.trigger]}
+          </Tag>
+          <Text type="secondary">{log.trigger_reason}</Text>
+        </Space>
+      }>
+        <Row gutter={8}>
+          <Col span={12}>
+            决策:
+            <Tag color={DECISION_COLORS[log.analysis.decision]}>
+              {DECISION_LABEL[log.analysis.decision]}
+            </Tag>
+            置信度: <Rate disabled allowHalf value={log.analysis.confidence} count={5} />
+          </Col>
+          <Col span={12}>
+            关键位:
+            {(log.analysis.key_levels || []).map((l, i) => (
+              <Tag key={i} color={l.type === 'support' ? 'cyan' : 'magenta'}>
+                {l.type === 'support' ? '支撑' : '压力'} {l.price}
+              </Tag>
+            ))}
+          </Col>
+        </Row>
+        <Paragraph style={{ marginTop: 8 }}>
+          {log.analysis.reasoning}
+        </Paragraph>
+      </Card>
+    ),
+  }))}
+/>
+```
+
+### 11.8 AI 配置前端：隐藏 API Key 输入
+
+在 `ProviderFormModal` 中移除 `api_key` 字段：
+
+```tsx
+// frontend/src/pages/system/ProviderFormModal.tsx
+
+// 删除 Form.Item(api_key)
+// 提交时 payload 中不包含 api_key
+// 说明文字补充：
+<Alert
+  type="info"
+  showIcon
+  message="API Key 已改为环境变量配置"
+  description="API Key 不再在前端输入或保存，需要在 backend/.env 中通过 LLM_OPENAI_API_KEY / LLM_DEEPSEEK_API_KEY / LLM_ZHIPU_API_KEY 等变量配置后重启服务生效。"
+  style={{ marginBottom: 16 }}
+/>
+```
+
+### 11.9 严格同步的前端感知（UX）
+
+SSE 进度推送应包含 `current_kline_index`，前端显示进度条。如 K 线推进长时间停滞（如超过 N 秒），说明 AI 还在响应，前端显示：
+
+```
+<Alert
+  type="info"
+  showIcon
+  message="AI 深度分析中..."
+  description="当前 K 线正在等待 AI 返回结果，分析完成前不会推进下一根。"
+/>
+```
+
+---
+
+## 12. 更新后的测试要点（前端）
+
+| 测试项 | 说明 |
+|--------|------|
+| K 线滚动动画 | 新 K 线 append 时，图表正确滚动保持 300 根显示 |
+| 关键位画线 | 支撑位青色线、压力位品红色线，数量和价格正确 |
+| 开单标记 | long/short 箭头出现在对应开仓 K 线上 |
+| 平仓标记 | 平仓线与盈亏标签显示 |
+| AI 分析实时展示 | 趋势、关键位、决策、理由、触发原因正确更新 |
+| Prompt 模板 CRUD | 新建/编辑/删除自定义模板；系统模板不可删除 |
+| 回测配置模板选择 | 四类模板可分别选择，提交时透传后端 |
+| 历史分析日志 | Timeline 展示完整且可展开 |
+| Provider 表单隐藏 API Key | 表单中无 api_key 输入，提交时不包含该字段 |

@@ -541,3 +541,301 @@ ai_backtest_tasks.py
 | P5       | 前端进度展示优化 + 融合操作入口     | 1 天     |
 | P6       | 测试 + 联调 + 文档更新              | 1 天     |
 | **合计** |                                     | **7 天** |
+
+---
+
+## 10. 思维导图需求补充（来自业务梳理）
+
+基于业务思维导图的补充梳理，新增以下关键要求。
+
+### 10.1 初始化阶段：300 根预热 + 关键位提取
+
+**需求描述**：以开始时间为结尾，获取前 300 条 K 线，AI 深度分析走势、关键位，并记录信息。
+
+**设计方案**：
+
+```
+AI回测初始化:
+  1. 拉取 [start - 300 * timeframe, start] 区间的 K 线（300 根预热）
+  2. 调用 AI 进行初始深度分析（analyze_with_window 300 根）
+  3. 从 AI 返回结果中提取并存储:
+     - initial_trend: 当前整体趋势（bullish/bearish/neutral）
+     - key_levels: 关键位数组 [{type: support, price}, {type: resistance, price}, ...]
+     - trend_summary: 走势摘要文字
+```
+
+**数据结构**：
+
+```python
+# AIBacktest 表新增 JSONB 字段
+initial_analysis: Dict = Field(
+    default_factory=dict, description="初始化 AI 分析结果（趋势、关键位、摘要）"
+)
+```
+
+### 10.2 关键位（支撑位 / 压力位）触发机制
+
+**需求描述**：分析完成后拿到多个支撑位 / 压力位，只有当价格接触到这些关键位时，才触发深度分析。
+
+**设计方案**：
+
+```
+逐根 K 线推进时:
+  1. 当前 close/high/low 是否进入任一关键位 ±阈值（如 0.5%）范围
+  2. 如果命中关键位 → 跳过第一级预筛，直接触发第二级 AI 深度分析（300 根）
+  3. 深度分析后更新 key_levels（新增/移除/调整关键位）
+  4. 未命中关键位 → 正常走第一级预筛逻辑
+```
+
+**关键位触发流程**：
+
+```
+K线到达价格 P:
+  ├─ P 在支撑位 [S-0.5%, S+0.5%] 范围内 → 触发深度分析，确认是否反弹/破位
+  ├─ P 在压力位 [R-0.5%, R+0.5%] 范围内 → 触发深度分析，确认是否突破/回落
+  └─ P 不在任何关键位附近 → 正常走两级预筛逻辑
+```
+
+### 10.3 开单后：关键位刷新
+
+**需求描述**：开单后不执行分析，只检查止盈止损；单子结束后，重新传入 300 根 K 线重新分析走势和关键位。
+
+**设计方案**：
+
+```
+开单成功后:
+  1. 暂停 AI 分析（已有的持仓免分析逻辑）
+  2. 逐根 K 线检查止损价 / 止盈价
+  3. 触发止损或止盈 → 平仓 → 标记关键位刷新请求
+
+平仓后:
+  1. 立即跳过第一级预筛
+  2. 直接调用 AI 深度分析（300 根最新 K 线）
+  3. 重新计算并覆盖 key_levels（旧的关键位清空，使用新的）
+  4. 更新 initial_trend 和 trend_summary
+  5. 恢复正常推进
+```
+
+### 10.4 严格同步推进（AI 完成 → 才拿下一根 K 线）
+
+**需求描述**：AI 分析必须完成并拿到结果后，才获取下一根 K 线数据（同步），不允许并发或预取下一根。
+
+**设计方案**：
+
+在 `_run_backtest_async` 主循环中添加严格同步保障：
+
+```python
+for idx, kline in enumerate(backtest_klines):
+    ctx.current_kline_index = idx + 1
+
+    # === 严格同步屏障：确保上一根的 AI 调用全部完成 ===
+    # （所有 await 都在循环内完成，保证串行执行）
+
+    # ... 有持仓逻辑（同步 await）...
+
+    # ... 预筛（同步 await）...
+
+    # ... 深度分析（同步 await）...
+
+    # ... 关键位命中分析（同步 await）...
+
+    # ... 决策执行（同步 await）...
+
+    # === 只有上面全部 await 完成，才执行下一个循环（下一根K线）===
+```
+
+**约束**：
+- 禁止在循环内使用 `asyncio.create_task()` 或 `asyncio.gather()`
+- 所有 AI 调用、指标计算、数据库写入必须使用 `await`
+- SSE 进度推送使用 fire-and-forget 语义（不等待 SSE 完成）
+
+### 10.5 Prompt 模板管理（增删改查 + 回测时可选模板）
+
+**需求描述**：将各种 AI 回测要求整理为提示词，提供模板管理页面，AI 回测时可选择模板。
+
+**设计方案**：
+
+#### 10.5.1 数据库模型
+
+```python
+class PromptTemplate(Base):
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, comment="模板名称")
+    category: Mapped[str] = mapped_column(String(50), nullable=False, index=True, comment="分类: backtest_precheck / deep_analysis / merge_optimize")
+    content: Mapped[str] = mapped_column(Text, nullable=False, comment="模板内容，支持 {变量} 占位符")
+    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    variables: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB, nullable=True, comment="可用变量列表及说明")
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否为默认模板（系统模板不可删除）")
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False, comment="是否为系统内置模板")
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), onupdate=func.now())
+```
+
+#### 10.5.2 模板分类
+
+| 分类 | 说明 | 作用位置 |
+|------|------|----------|
+| `backtest_precheck` | 回测预筛 Prompt 模板 | `quick_precheck()` / `LocalModelPrechecker.precheck()` |
+| `deep_analysis` | 回测深度分析 Prompt 模板 | `analyze_with_window()` |
+| `merge_optimize` | 多策略融合 Prompt 模板 | `merge_optimize()` |
+| `initial_analysis` | 初始化分析 Prompt 模板 | 初始化 300 根预热分析 |
+
+#### 10.5.3 回测配置新增字段
+
+```python
+# AIBacktest 表新增
+prompt_template_ids: Dict[str, Optional[uuid.UUID]] = Field(
+    default_factory=dict, description="使用的 Prompt 模板 ID 映射 {category: template_id}"
+)
+
+# AIBacktestCreate 新增
+prompt_template_ids: Optional[Dict[str, Optional[str]]]
+```
+
+### 10.6 LLM Provider API Key 迁移：环境变量 + 数据库仅存非敏感配置
+
+**需求描述**：Provider 的 API Key 改为环境变量，不需要用户输入，不可编辑、不可查看，不存入数据库。
+
+**设计方案**：
+
+#### 10.6.1 环境变量存储（.env）
+
+```
+# backend/.env.example 新增
+# 云端 OpenAI 兼容 Provider 的 API Key（不再存入数据库）
+# 多个 Provider 使用 PROVIDER_API_KEY_{ID 或 NAME} 命名方式，或统一配置
+LLM_OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
+LLM_DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxx
+LLM_ZHIPU_API_KEY=sk-xxxxxxxxxxxxxxxx
+```
+
+#### 10.6.2 Config 读取
+
+```python
+# backend/app/core/config.py
+class Settings:
+    # ... 现有 ...
+
+    # Provider API Key 从环境变量读取（只读，不写入DB）
+    LLM_OPENAI_API_KEY: Optional[str] = None
+    LLM_DEEPSEEK_API_KEY: Optional[str] = None
+    LLM_ZHIPU_API_KEY: Optional[str] = None
+    LLM_GENERIC_API_KEY: Optional[str] = None  # 兜底
+```
+
+#### 10.6.3 数据库表迁移
+
+```python
+# system_configs 表中 category='ai' 的记录:
+# value 字段中的 'api_key' 字段:
+#   - 迁移时清空已有的 api_key（避免 DB 中残留）
+#   - 保留 base_url, model, provider_type 等非敏感字段
+#   - 前端返回时不再包含任何 api_key 字段
+```
+
+#### 10.6.4 ProviderFactory 调整
+
+```python
+class ProviderFactory:
+    @classmethod
+    async def get_active_provider(cls, db: AsyncSession):
+        # ... 从 DB 读取 base_url, model, provider_type ...
+        # API Key 不再从 DB 读取，改为根据 provider_type 从 settings 中匹配
+        provider_type = config.value.get("provider_type")
+
+        if provider_type == "ollama":
+            api_key = "ollama"  # 本地模型无需 key
+        elif provider_type == "openai_compatible":
+            name = config.value.get("provider_name", "").lower()
+            if "deepseek" in name:
+                api_key = settings.LLM_DEEPSEEK_API_KEY
+            elif "zhipu" in name or "glm" in name:
+                api_key = settings.LLM_ZHIPU_API_KEY
+            else:
+                api_key = settings.LLM_OPENAI_API_KEY or settings.LLM_GENERIC_API_KEY
+        else:
+            api_key = settings.LLM_GENERIC_API_KEY
+
+        # 使用 (DB 中的非敏感配置) + (env 中的 api_key) 构建 Provider
+        return LLMProvider(
+            provider_type=provider_type,
+            base_url=config.value["base_url"],
+            api_key=api_key,  # 来自 env
+            model=config.value["model"],
+        )
+```
+
+#### 10.6.5 前端接口调整
+
+- `GET /system/configs/ai`：返回列表不包含任何 `api_key` 相关字段
+- `POST /system/configs/ai`：请求体中不允许传 `api_key` 字段，自动忽略
+- `PUT /system/configs/ai/{id}`：同上
+
+### 10.7 回测进度动画（K 线渲染 + 开单标记）
+
+**需求描述**：
+1. 初始化时渲染 K 线，每次获取新 K 线保证只显示 300 条（滚动窗口）
+2. AI 分析并创建单子时，在图表上制作多单或空单标记
+
+**设计方案**（前端处理，详见前端技术方案 §11）：
+
+```
+SSE 推送的 progress payload 中增加:
+  kline_window: [ {open, high, low, close, volume, time}, ... ] （最多 300 根）
+  current_kline_index: 当前索引
+  latest_trade: { direction, entry_price, stop_loss, take_profit, created_at } (开单时)
+  closed_trade: { direction, exit_price, pnl, reason, closed_at } (平仓时)
+```
+
+### 10.8 深度分析信息持久化与展示
+
+**需求描述**：
+1. 深度分析信息需要保存，回测历史中可查看
+2. 分析过程中 AI 数据实时输出（走势判断、关键位、当前持仓信息）
+
+**设计方案**：
+
+```python
+# AIBacktest 表新增
+ai_analysis_logs: List[Dict] = Field(
+    default_factory=list, description="深度分析日志列表（用于历史复盘）"
+)
+# 每条日志结构:
+# {
+#   kline_index: int,
+#   trigger: "precheck_pass" / "key_level_hit" / "position_closed",
+#   analysis: {trend, key_levels, decision, confidence, reasoning},
+#   created_at: iso_string
+# }
+```
+
+```
+SSE 推送 payload 中新增:
+  ai_analysis: {
+    trend: "bullish/bearish/neutral",
+    key_levels: [{type:"support", price:68500}, ...],
+    decision: "open_long",
+    confidence: 5,
+    reasoning: "..."
+  }
+```
+
+---
+
+## 11. 更新后的开发排期（含补充需求）
+
+| 阶段 | 内容 | 预估工时 |
+|------|------|----------|
+| P1 | 数据库模型变更 + Alembic 迁移（含 initial_analysis / prompt_templates / API Key 去 DB 化） | 1.5 天 |
+| P2 | 后端核心逻辑：初始化分析 + 关键位触发 + 严格同步 + 持仓后刷新 | 2 天 |
+| P3 | 后端：Prompt 模板 CRUD + 模板注入 + 本地模型预筛器 | 1.5 天 |
+| P4 | 后端：API Key 环境变量化 + DB 迁移清理 | 0.5 天 |
+| P5 | 后端：多策略融合优化 | 1 天 |
+| P6 | 前端：进度动画（K线滚动+开单标记）+ 分析信息实时展示 | 1.5 天 |
+| P7 | 前端：Prompt 模板管理页面 + 回测配置可选模板 | 1 天 |
+| P8 | 前端：多策略选择 + 融合入口 + 配置表单 | 1 天 |
+| P9 | 测试 + 联调 + 文档更新 | 1.5 天 |
+| **合计** | | **11.5 天** |

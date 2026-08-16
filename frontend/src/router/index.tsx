@@ -12,6 +12,7 @@ const CoinsPage = lazy(() => import('@/pages/coins'));
 const StrategiesPage = lazy(() => import('@/pages/strategies'));
 const BooksPage = lazy(() => import('@/pages/books'));
 const AiPage = lazy(() => import('@/pages/ai'));
+const PromptsPage = lazy(() => import('@/pages/prompts'));
 const SystemPage = lazy(() => import('@/pages/system'));
 const ErrorLogsPage = lazy(() => import('@/pages/error-logs'));
 
@@ -42,6 +43,7 @@ export const router = createBrowserRouter([
       { path: 'strategies', element: <SuspenseWrapper><StrategiesPage /></SuspenseWrapper> },
       { path: 'books', element: <SuspenseWrapper><BooksPage /></SuspenseWrapper> },
       { path: 'ai', element: <SuspenseWrapper><AiPage /></SuspenseWrapper> },
+      { path: 'prompts', element: <SuspenseWrapper><PromptsPage /></SuspenseWrapper> },
       { path: 'system', element: <SuspenseWrapper><SystemPage /></SuspenseWrapper> },
       { path: 'error-logs', element: <SuspenseWrapper><ErrorLogsPage /></SuspenseWrapper> },
       { path: '*', element: <NotFoundPage /> },

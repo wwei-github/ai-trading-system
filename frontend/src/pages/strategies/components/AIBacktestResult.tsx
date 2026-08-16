@@ -1,16 +1,29 @@
 import React, { useState } from 'react';
 import {
   Card, Row, Col, Statistic, Typography, Divider, Tag, Table, Space,
-  Button, Empty, message,
+  Button, Empty, message, Timeline, Rate,
 } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined, DownloadOutlined, RobotOutlined,
+  MergeCellsOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import type { AIBacktestDetail, AIBacktestTrade } from '@/types/ai-backtest';
+import type {
+  AIBacktestDetail, AIBacktestTrade, AIAnalysisLogItem,
+} from '@/types/ai-backtest';
 import { TradeDetailModal } from './TradeDetailModal';
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
+
+const DECISION_LABEL: Record<string, string> = {
+  open_long: '开多', open_short: '开空', close_long: '平多', close_short: '平空', hold: '持有',
+};
+const DECISION_COLORS: Record<string, string> = {
+  open_long: 'red', open_short: 'green', close_long: 'orange', close_short: 'orange', hold: 'default',
+};
+const TRIGGER_LABEL: Record<string, string> = {
+  precheck_pass: '预筛通过', key_level_hit: '关键位触发', position_closed: '平仓触发', initial: '初始化',
+};
 
 interface Props {
   detail?: AIBacktestDetail;
@@ -19,9 +32,18 @@ interface Props {
   onPageChange?: (page: number) => void;
   page?: number;
   onAnalyze?: () => void;
+  onMergeOptimize?: () => void;
 }
 
-export const AIBacktestResult: React.FC<Props> = ({ detail, trades, tradeTotal, onPageChange, page = 1, onAnalyze }) => {
+const getTimelineColor = (trigger: AIAnalysisLogItem['trigger']): string => {
+  if (trigger === 'key_level_hit') return 'magenta';
+  if (trigger === 'position_closed') return 'orange';
+  return 'blue';
+};
+
+export const AIBacktestResult: React.FC<Props> = ({
+  detail, trades, tradeTotal, onPageChange, page = 1, onAnalyze, onMergeOptimize,
+}) => {
   const [selectedTrade, setSelectedTrade] = useState<AIBacktestTrade | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -31,6 +53,10 @@ export const AIBacktestResult: React.FC<Props> = ({ detail, trades, tradeTotal, 
 
   const summary = detail.result_summary;
   const isProfitable = (summary?.total_pnl || 0) >= 0;
+  const aiAnalysisLogs = detail.ai_analysis_logs || [];
+  const precheckTotal = detail.precheck_total ?? 0;
+  const precheckTriggered = detail.precheck_triggered ?? 0;
+  const savedCalls = Math.max(0, precheckTotal - precheckTriggered);
 
   return (
     <div>
@@ -70,6 +96,94 @@ export const AIBacktestResult: React.FC<Props> = ({ detail, trades, tradeTotal, 
             {detail.result_summary?.ai_analysis && (
               <Tag color="success">已分析</Tag>
             )}
+          </Space>
+        </Card>
+      )}
+
+      {/* 融合优化入口 */}
+      {detail.status === 'completed' && onMergeOptimize && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space align="center">
+            <Button
+              type="primary"
+              ghost
+              icon={<MergeCellsOutlined />}
+              onClick={() => onMergeOptimize?.()}
+            >
+              融合优化
+            </Button>
+            <Text type="secondary">
+              基于本次回测结果与其他回测进行策略融合优化，生成改进后的新策略
+            </Text>
+          </Space>
+        </Card>
+      )}
+
+      {/* AI 分析日志时间线 */}
+      {aiAnalysisLogs.length > 0 && (
+        <Card size="small" title="AI 分析日志" style={{ marginBottom: 16 }}>
+          <Timeline
+            items={aiAnalysisLogs.map((log) => ({
+              color: getTimelineColor(log.trigger),
+              children: (
+                <div>
+                  <Space wrap style={{ marginBottom: 4 }}>
+                    <Tag>K线 #{log.kline_index}</Tag>
+                    <Tag color={getTimelineColor(log.trigger)}>
+                      {TRIGGER_LABEL[log.trigger] || log.trigger}
+                    </Tag>
+                    {log.trigger_reason && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {log.trigger_reason}
+                      </Text>
+                    )}
+                    <Tag color={DECISION_COLORS[log.analysis?.decision] || 'default'}>
+                      {DECISION_LABEL[log.analysis?.decision] || log.analysis?.decision}
+                    </Tag>
+                    {log.analysis?.confidence != null && (
+                      <Rate
+                        disabled
+                        allowHalf
+                        value={log.analysis.confidence / 20}
+                        style={{ fontSize: 12 }}
+                      />
+                    )}
+                  </Space>
+                  {log.analysis?.key_levels && log.analysis.key_levels.length > 0 && (
+                    <Space wrap style={{ marginBottom: 4 }}>
+                      {log.analysis.key_levels.map((lvl, idx) => (
+                        <Tag key={idx} color={lvl.type === 'support' ? 'green' : 'red'}>
+                          {lvl.type === 'support' ? '支撑' : '阻力'}: {lvl.price}
+                        </Tag>
+                      ))}
+                    </Space>
+                  )}
+                  {log.analysis?.reasoning && (
+                    <Paragraph
+                      type="secondary"
+                      style={{ fontSize: 12, marginBottom: 0, marginTop: 4 }}
+                    >
+                      {log.analysis.reasoning}
+                    </Paragraph>
+                  )}
+                </div>
+              ),
+            }))}
+          />
+        </Card>
+      )}
+
+      {/* 预筛效能统计 */}
+      {precheckTotal > 0 && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Text strong>预筛效能: </Text>
+            <Tag>预筛总数: {precheckTotal}</Tag>
+            <Tag color="blue">触发 AI: {precheckTriggered}</Tag>
+            <Tag color="success">节省调用: {savedCalls}</Tag>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              节省率: {precheckTotal > 0 ? ((savedCalls / precheckTotal) * 100).toFixed(1) : 0}%
+            </Text>
           </Space>
         </Card>
       )}

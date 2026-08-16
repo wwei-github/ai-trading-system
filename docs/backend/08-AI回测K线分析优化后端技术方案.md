@@ -919,3 +919,562 @@ def _calculate_indicators_cached(klines: List[Dict], cache_key: str) -> Dict[str
 | 完整回测流程 | 100 根 K 线回测，确认 AI 调用次数显著减少 |
 | 多策略融合 API | 创建 2 个回测 → 融合优化 → 确认新策略生成 |
 | 并发控制 | 同一用户最多 3 个回测同时运行 |
+
+---
+
+## 10. 思维导图补充需求（后端实现）
+
+### 10.1 初始化 300 根预热 + 关键位提取
+
+#### 数据模型变更
+
+```python
+# backend/app/models/ai_backtest.py
+
+class AIBacktest(Base):
+    # ... 现有字段 ...
+
+    initial_analysis: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, comment="初始化 AI 分析结果（趋势、关键位、摘要）"
+    )
+    # initial_analysis 结构示例:
+    # {
+    #   "trend": "bullish",            # bullish / bearish / neutral
+    #   "trend_summary": "MACD金叉+MA20支撑，趋势偏多",
+    #   "key_levels": [
+    #       {"type": "support", "price": 68500.0},
+    #       {"type": "support", "price": 67800.0},
+    #       {"type": "resistance", "price": 70200.0},
+    #   ]
+    # }
+
+    ai_analysis_logs: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, default_factory=list, comment="深度分析日志列表（复盘用）"
+    )
+    prompt_template_ids: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, default_factory=dict,
+        comment="使用的 Prompt 模板 ID 映射 {category: template_id}"
+    )
+```
+
+#### 初始化流程实现
+
+```python
+# backend/app/tasks/ai_backtest_tasks.py
+
+async def _run_backtest_async(backtest_id: str):
+    # ... 加载配置、获取 DB Session、加载策略 ...
+
+    # === 初始化 300 根预热 AI 分析 ===
+    preheat_start_time = config["start_time"] - timedelta(
+        minutes=(_timeframe_minutes(config["timeframe"]) * ctx.preheat_count)
+    )
+    preheat_klines = await ccxt_client.fetch_ohlcv(
+        symbol=config["symbol"],
+        timeframe=config["timeframe"],
+        start_time=preheat_start_time,
+        end_time=config["start_time"],
+    )
+    ctx.all_klines = preheat_klines  # 300 根预热数据
+    ctx.preheat_count = len(preheat_klines)
+
+    # 初始深度分析（300 根）
+    if ctx.use_ai_real:
+        try:
+            initial_result = await analyzer.analyze_initial(
+                kline_window=ctx.all_klines,
+                # ... 其他参数 ...
+            )
+            ctx.initial_analysis = initial_result
+            ctx.key_levels = initial_result.get("key_levels", [])
+            await _persist_initial_analysis(db, backtest_id, initial_result)
+        except Exception as e:
+            logger.warning(f"Initial AI analysis failed: {e}")
+            ctx.initial_analysis = {}
+            ctx.key_levels = []
+```
+
+#### AIMarketAnalyzer.analyze_initial()
+
+```python
+# backend/app/utils/ai_market_analyzer.py
+
+INITIAL_ANALYSIS_PROMPT_TEMPLATE = """你是一个专业的加密货币市场分析师。
+请分析最近 {count} 根K线，给出整体趋势判断、关键支撑位和压力位。
+
+## 最近K线数据（{count}根，从旧到新）
+{kline_summary}
+
+## 技术指标摘要
+{indicators_summary}
+
+## 策略入场规则
+{entry_rules}
+
+请输出 JSON：
+{{
+  "trend": "bullish/bearish/neutral",
+  "trend_summary": "趋势摘要（30字以内）",
+  "key_levels": [
+    {{"type": "support", "price": 0}},
+    {{"type": "resistance", "price": 0}}
+  ]
+}}
+"""
+
+class AIMarketAnalyzer:
+    # ... 现有方法 ...
+
+    def _get_template_content(self, category: str) -> str:
+        """根据分类获取 Prompt 模板（使用用户选择或系统默认）。"""
+        # 1. 如果 ctx.prompt_template_ids 中有该分类，优先使用
+        # 2. 否则取数据库中 category=该分类 且 is_default=True 的系统模板
+        # 3. 最后使用内置默认模板常量
+        ...
+
+    async def analyze_initial(
+        self,
+        kline_window: List[Dict],
+        strategy_rules: Dict[str, Any],
+        symbol: str,
+        timeframe: str,
+    ) -> Dict[str, Any]:
+        """初始化 300 根 K 线分析。"""
+        template = self._get_template_content("initial_analysis")
+        prompt = template.format(
+            count=len(kline_window),
+            kline_summary=...,
+            indicators_summary=...,
+            entry_rules=json.dumps(strategy_rules.get("entry_rules", []), ensure_ascii=False),
+        )
+        result = await self._call_llm(prompt, temperature=0.2, max_tokens=600)
+        return self._parse_initial_result(result)
+
+    async def quick_precheck(self, ...):
+        template = self._get_template_content("backtest_precheck")
+        # ... 使用该模板构建 prompt ...
+
+    async def analyze_with_window(self, ...):
+        template = self._get_template_content("deep_analysis")
+        # ... 使用该模板构建 prompt ...
+```
+
+### 10.2 关键位命中触发深度分析
+
+#### 关键位检测
+
+```python
+# backend/app/tasks/ai_backtest_tasks.py
+
+KEY_LEVEL_THRESHOLD_PCT = 0.005  # 0.5% 阈值
+
+
+def _check_key_level_hit(kline: Dict, key_levels: List[Dict]) -> Optional[Dict]:
+    """检测 K 线是否命中关键位（±0.5% 范围）。
+
+    Returns: 命中的关键位信息，未命中返回 None
+    """
+    close = kline["close"]
+    high = kline["high"]
+    low = kline["low"]
+    for level in key_levels:
+        price = level["price"]
+        delta = price * KEY_LEVEL_THRESHOLD_PCT
+        # 只要 K 线的价格区间 [low, high] 与 [price-delta, price+delta] 相交
+        if high >= (price - delta) and low <= (price + delta):
+            return {
+                **level,
+                "hit_price": close,
+                "distance_pct": abs(close - price) / price * 100,
+            }
+    return None
+```
+
+#### 主循环中集成
+
+```python
+for idx, kline in enumerate(backtest_klines):
+    # ... 停止信号 ...
+
+    # === 关键位命中检查（优先于预筛） ===
+    key_level_hit = None
+    if ctx.use_ai_real and ctx.current_position is None:
+        key_level_hit = _check_key_level_hit(kline, ctx.key_levels or [])
+
+    should_analyze = ctx.use_ai_real
+    if should_analyze and ctx.current_position is None:
+        if key_level_hit is not None:
+            # 命中关键位 → 跳过预筛，直接进入深度分析
+            should_analyze = True
+            ctx.last_trigger_reason = f"key_level_hit:{key_level_hit['type']}"
+        else:
+            # 否则走两级预筛逻辑
+            # ... 主AI / 本地模型预筛 ...
+
+    # 深度分析后更新关键位
+    if ai_result and "key_levels" in ai_result:
+        ctx.key_levels = ai_result["key_levels"]
+        _append_analysis_log(ctx, kline_index, trigger=ctx.last_trigger_reason, analysis=ai_result)
+```
+
+### 10.3 平仓后关键位刷新
+
+```python
+# 主循环中
+had_position = ctx.current_position is not None
+executor.execute(kline, ai_result, indicators)
+
+# === 平仓检测：上一根有持仓、这一根没了 ===
+if had_position and ctx.current_position is None:
+    # 触发平仓后的深度分析（跳过预筛）
+    logger.info(f"Position closed at kline {idx+1}, refreshing key levels")
+    window_start = max(0, len(kline_data) - 300)
+    kline_window = kline_data[window_start:]
+    try:
+        refresh_result = await analyzer.analyze_with_window(
+            kline_window=kline_window,
+            # ... 其他参数
+        )
+        # 覆盖更新关键位
+        ctx.key_levels = refresh_result.get("key_levels", [])
+        ctx.initial_analysis["trend"] = refresh_result.get("market_analysis", {}).get("trend")
+        ctx.initial_analysis["key_levels"] = ctx.key_levels
+        _append_analysis_log(ctx, idx + 1, trigger="position_closed", analysis=refresh_result)
+    except Exception as e:
+        logger.warning(f"Post-close key level refresh failed: {e}")
+
+    # 恢复 AI 分析
+    ctx.ai_analysis_paused = False
+```
+
+### 10.4 严格同步推进（代码约束）
+
+在 `_run_backtest_async` 顶部添加约束注释，并在代码评审中检查：
+
+```python
+async def _run_backtest_async(backtest_id: str):
+    """异步执行回测主逻辑。
+
+    严格同步约束：
+    - 禁止在本函数 for 循环内部使用 asyncio.create_task / gather / ensure_future
+    - 所有 AI 调用、指标计算、DB 操作必须显式 await
+    - SSE progress 推送是 fire-and-forget（已封装，不阻塞）
+    - 目标：AI 完整处理完 K 线 N 后，才推进到 N+1
+    """
+    # ...
+
+    for idx, kline in enumerate(backtest_klines):
+        # 严格同步：全部 await 完成才 continue
+        ...
+```
+
+### 10.5 Prompt 模板 CRUD
+
+#### 模型与 Schema
+
+```python
+# backend/app/models/prompt_template.py （新建）
+class PromptTemplate(Base):
+    __tablename__ = "prompt_templates"
+    # 字段定义见架构方案 §10.5.1
+
+# backend/app/schemas/prompt_template.py （新建）
+class PromptTemplateCreate(BaseModel):
+    name: str = Field(..., max_length=100)
+    category: str = Field(..., description="backtest_precheck/deep_analysis/merge_optimize/initial_analysis")
+    content: str = Field(..., description="模板内容，支持 {变量}")
+    description: Optional[str] = None
+    variables: Optional[Dict[str, Any]] = None
+
+class PromptTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    content: Optional[str] = None
+    description: Optional[str] = None
+    variables: Optional[Dict[str, Any]] = None
+
+class PromptTemplateResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    category: str
+    content: str
+    description: Optional[str]
+    variables: Optional[Dict[str, Any]]
+    is_default: bool
+    is_system: bool
+    created_at: datetime
+    model_config = {"from_attributes": True}
+```
+
+#### Service
+
+```python
+# backend/app/services/prompt_template_service.py
+
+class PromptTemplateService:
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def list_templates(self, category: Optional[str] = None, user_id: Optional[uuid.UUID] = None) -> List[PromptTemplate]:
+        stmt = select(PromptTemplate).where(
+            (PromptTemplate.is_system == True)
+            | (PromptTemplate.user_id == user_id)
+        )
+        if category:
+            stmt = stmt.where(PromptTemplate.category == category)
+        stmt = stmt.order_by(PromptTemplate.is_system.desc(), PromptTemplate.created_at.desc())
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def create_template(self, user_id: uuid.UUID, data: PromptTemplateCreate) -> PromptTemplate:
+        tpl = PromptTemplate(
+            user_id=user_id,
+            name=data.name,
+            category=data.category,
+            content=data.content,
+            description=data.description,
+            variables=data.variables,
+        )
+        self.db.add(tpl)
+        await self.db.commit()
+        await self.db.refresh(tpl)
+        return tpl
+
+    async def update_template(self, template_id: uuid.UUID, user_id: uuid.UUID, data: PromptTemplateUpdate) -> Optional[PromptTemplate]:
+        tpl = await self._get_template(template_id)
+        if not tpl or tpl.is_system or tpl.user_id != user_id:
+            return None
+        for k, v in data.model_dump(exclude_unset=True).items():
+            setattr(tpl, k, v)
+        await self.db.commit()
+        await self.db.refresh(tpl)
+        return tpl
+
+    async def delete_template(self, template_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+        tpl = await self._get_template(template_id)
+        if not tpl or tpl.is_system or tpl.user_id != user_id:
+            return False
+        await self.db.delete(tpl)
+        await self.db.commit()
+        return True
+```
+
+#### API 路由
+
+```python
+# backend/app/api/v1/prompt_templates.py
+
+router = APIRouter(prefix="/prompt-templates", tags=["Prompt模板管理"])
+
+@router.get("", summary="获取 Prompt 模板列表")
+async def list_templates(
+    category: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    svc = PromptTemplateService(db)
+    items = await svc.list_templates(category, current_user.id)
+    return ApiResponse(data=[PromptTemplateResponse.model_validate(i) for i in items])
+
+@router.post("", summary="创建自定义模板")
+async def create_template(
+    data: PromptTemplateCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    svc = PromptTemplateService(db)
+    tpl = await svc.create_template(current_user.id, data)
+    return ApiResponse(data=PromptTemplateResponse.model_validate(tpl))
+
+@router.put("/{id}", summary="更新自定义模板")
+async def update_template(
+    id: uuid.UUID,
+    data: PromptTemplateUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    svc = PromptTemplateService(db)
+    tpl = await svc.update_template(id, current_user.id, data)
+    if not tpl:
+        raise NotFoundException()
+    return ApiResponse(data=PromptTemplateResponse.model_validate(tpl))
+
+@router.delete("/{id}", summary="删除自定义模板")
+async def delete_template(
+    id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    svc = PromptTemplateService(db)
+    if not await svc.delete_template(id, current_user.id):
+        raise NotFoundException()
+    return ApiResponse(data=True)
+```
+
+### 10.6 Provider API Key 迁移到环境变量
+
+#### Config
+
+```python
+# backend/app/core/config.py
+
+class Settings(BaseSettings):
+    # ... 现有字段 ...
+
+    # AI Provider API Keys（只读，来自环境变量，不存 DB）
+    LLM_OPENAI_API_KEY: Optional[str] = Field(None, description="OpenAI 兼容默认 API Key")
+    LLM_DEEPSEEK_API_KEY: Optional[str] = None
+    LLM_ZHIPU_API_KEY: Optional[str] = None
+    LLM_GENERIC_API_KEY: Optional[str] = Field(None, description="通用兜底 Key")
+
+    def resolve_key_by_provider_name(self, name: str) -> Optional[str]:
+        """根据 Provider 名称匹配环境变量。"""
+        name_lower = (name or "").lower()
+        if "deepseek" in name_lower:
+            return self.LLM_DEEPSEEK_API_KEY or self.LLM_OPENAI_API_KEY or self.LLM_GENERIC_API_KEY
+        if "zhipu" in name_lower or "glm" in name_lower:
+            return self.LLM_ZHIPU_API_KEY or self.LLM_OPENAI_API_KEY or self.LLM_GENERIC_API_KEY
+        return self.LLM_OPENAI_API_KEY or self.LLM_GENERIC_API_KEY
+```
+
+#### env.example 更新
+
+```
+# backend/.env.example 追加
+
+# ================================================
+# AI Provider API Keys（不存数据库，只从环境变量读取）
+# ================================================
+# 通用兜底：任何未匹配的 OpenAI 兼容 provider
+LLM_GENERIC_API_KEY=
+
+# 针对特定 Provider 的 Key
+LLM_OPENAI_API_KEY=
+LLM_DEEPSEEK_API_KEY=
+LLM_ZHIPU_API_KEY=
+```
+
+#### ProviderFactory 调整
+
+```python
+# backend/app/services/provider_factory.py
+
+class ProviderFactory:
+    @classmethod
+    async def _get_openai_provider(cls, db: AsyncSession) -> Optional[LLMProvider]:
+        stmt = (
+            select(SystemConfig)
+            .where(SystemConfig.category == "ai", SystemConfig.is_active == True)
+            .order_by(SystemConfig.is_default.desc())
+        )
+        result = await db.execute(stmt)
+        config = result.scalar_one_or_none()
+        if not config:
+            return None
+
+        value = config.value or {}
+        provider_type = value.get("provider_type", "openai_compatible")
+        provider_name = value.get("provider_name", "")
+        base_url = value.get("base_url")
+        model = value.get("model")
+
+        # 关键变更：API Key 从 settings 匹配（而不是 value["api_key"]）
+        if provider_type == "ollama":
+            api_key = "ollama"
+        else:
+            # 从 settings 环境变量读取，不存 DB
+            api_key = settings.resolve_key_by_provider_name(provider_name)
+            if not api_key:
+                raise ConfigurationException(
+                    f"未设置 Provider '{provider_name}' 对应的 API Key 环境变量"
+                )
+
+        return LLMProvider(
+            provider_type=provider_type,
+            base_url=base_url,
+            api_key=api_key,
+            model=model,
+        )
+```
+
+#### DB 迁移：清理残留 API Key
+
+```python
+# Alembic 迁移脚本
+def upgrade() -> None:
+    # 清理 system_configs 中 category='ai' 的 value 字段里的 api_key
+    conn = op.get_bind()
+    rows = conn.execute(
+        text("SELECT id, value FROM system_configs WHERE category = 'ai'")
+    ).fetchall()
+    for id_, value in rows:
+        if value and "api_key" in value:
+            new_value = dict(value)
+            del new_value["api_key"]
+            conn.execute(
+                text("UPDATE system_configs SET value = :v WHERE id = :id"),
+                {"v": json.dumps(new_value), "id": id_},
+            )
+```
+
+#### 系统配置接口：移除 api_key 字段
+
+```python
+# POST / PUT 创建/更新 ai 配置时，忽略请求体中的 api_key 字段
+
+def sanitize_value(value: Dict) -> Dict:
+    return {k: v for k, v in value.items() if k.lower() != "api_key"}
+```
+
+### 10.7 深度分析日志持久化
+
+```python
+# backend/app/tasks/ai_backtest_tasks.py
+
+def _append_analysis_log(ctx, kline_index: int, trigger: str, analysis: Dict[str, Any]):
+    """追加一条深度分析日志（内存中），最后统一写入 DB。"""
+    if not isinstance(ctx.ai_analysis_logs, list):
+        ctx.ai_analysis_logs = []
+    ctx.ai_analysis_logs.append({
+        "kline_index": kline_index,
+        "trigger": trigger,              # precheck_pass / key_level_hit / position_closed / initial
+        "trigger_reason": ctx.last_trigger_reason,
+        "analysis": {
+            "market_analysis": analysis.get("market_analysis"),
+            "decision": analysis.get("decision"),
+            "confidence": analysis.get("trade_plan", {}).get("confidence"),
+            "reasoning": analysis.get("trade_plan", {}).get("reason"),
+            "key_levels": analysis.get("market_analysis", {}).get("key_levels"),
+        },
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+```
+
+### 10.8 SSE payload 扩展
+
+`_publish_progress` 调用时 payload 新增以下字段：
+
+```python
+progress_payload = {
+    # ... 现有字段 ...
+    "precheck_total": ctx.precheck_total,
+    "precheck_triggered": ctx.precheck_triggered,
+    "precheck_mode": "local_model" if ctx.use_local_model else "ai_precheck",
+    "has_position": ctx.current_position is not None,
+    "ai_analysis_paused": ctx.ai_analysis_paused,
+    "analysis_window": ctx.last_ai_kline_window and {
+        "start": ctx.last_ai_kline_window[0],
+        "end": ctx.last_ai_kline_window[1],
+        "size": ctx.last_ai_kline_window[1] - ctx.last_ai_kline_window[0] + 1,
+    },
+    "trigger_reason": ctx.last_trigger_reason,
+
+    # 思维导图新增
+    "kline_window": kline_window[-300:],                    # 300 根滚动窗口
+    "current_kline_index": ctx.current_kline_index,
+    "latest_trade": latest_opened_trade_dict,               # 开单事件
+    "closed_trade": latest_closed_trade_dict,               # 平仓事件
+    "ai_analysis": latest_ai_analysis_mini_dict,            # 深度分析简要
+    "key_levels": ctx.key_levels,                           # 最新关键位
+    "trend": (ctx.initial_analysis or {}).get("trend"),     # 当前趋势
+}
+```

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Modal, Form, Input, Select, Slider, InputNumber, Button, message, Space,
+  Modal, Form, Input, Select, Slider, InputNumber, Button, message, Space, Alert,
 } from 'antd';
 import { aiProviderApi } from '@/api/ai-provider';
 import type { AIProvider, ProviderType, OllamaModel } from '@/types';
@@ -103,7 +103,6 @@ const ProviderFormModal = ({ open, provider, onClose, onSuccess }: Props) => {
         model: values.model,
         temperature: values.temperature ?? 0.7,
         max_tokens: values.max_tokens ?? (type === 'ollama' ? 4096 : 2000),
-        ...(type === 'openai_compatible' ? { api_key: values.api_key } : {}),
       },
     };
 
@@ -138,19 +137,13 @@ const ProviderFormModal = ({ open, provider, onClose, onSuccess }: Props) => {
           <Input placeholder="如：OpenAI GPT-4o、Ollama 本地" />
         </Form.Item>
 
-        {type === 'openai_compatible' && (
-          <Form.Item
-            label="API Key"
-            name="api_key"
-            rules={isEdit ? [] : [{ required: true, message: '请输入 API Key' }]}
-            extra={isEdit ? '留空则不修改已有 Key' : undefined}
-          >
-            <Input.Password
-              placeholder={isEdit ? '留空不修改' : 'sk-...'}
-              autoComplete="off"
-            />
-          </Form.Item>
-        )}
+        <Alert
+          type="info"
+          showIcon
+          message="API Key 已改为环境变量配置"
+          description="API Key 不再在前端输入或保存，需要在 backend/.env 中通过 LLM_OPENAI_API_KEY / LLM_DEEPSEEK_API_KEY / LLM_ZHIPU_API_KEY 等变量配置后重启服务生效。"
+          style={{ marginBottom: 16 }}
+        />
 
         <Form.Item
           label="接口地址"

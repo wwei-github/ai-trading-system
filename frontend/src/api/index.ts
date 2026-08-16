@@ -9,5 +9,5 @@ export { aiApi } from './ai';
 export { systemApi } from './system';
 
 export { aiProviderApi } from './ai-provider';
-export { default as aiBacktestApi } from './ai-backtest';
+export { default as aiBacktestApi, promptTemplateApi } from './ai-backtest';
 export { default as request } from './request';

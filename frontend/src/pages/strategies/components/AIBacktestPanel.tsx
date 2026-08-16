@@ -10,12 +10,14 @@ import type {
   AIBacktestProgress,
   AIBacktestAIAnalysis,
   AIBacktestAnalysisResult,
+  MergeOptimizeRequest,
 } from '@/types/ai-backtest';
 import { AIBacktestConfigForm } from './AIBacktestConfigForm';
 import { AIBacktestProgress as AIBacktestProgressComp } from './AIBacktestProgress';
 import { AIBacktestResult } from './AIBacktestResult';
 import { AIBacktestHistory } from './AIBacktestHistory';
 import { AIBacktestAnalysis } from './AIBacktestAnalysis';
+import { MergeOptimizeModal } from './MergeOptimizeModal';
 
 const DEFAULT_CONFIG: AIBacktestConfig = {
   strategyId: '',
@@ -34,6 +36,11 @@ const DEFAULT_CONFIG: AIBacktestConfig = {
     mandatory_stop_loss: { enabled: true, default_stop_loss_pct: 3, description: '强制止损：每笔开仓必须设置止损' },
     strict_execution: { enabled: true, description: '严格执规：AI 决策必须遵循策略规则' },
   },
+  backtestMode: 'single',
+  strategyIds: [],
+  useLocalModel: false,
+  localModelKlines: 10,
+  promptTemplateIds: {},
 };
 
 interface Props {
@@ -69,7 +76,10 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   // 终止状态
   const [isStopping, setIsStopping] = useState(false);
 
-  // 创建回测
+  // 融合优化弹窗
+  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+
+  // 创建单策略回测
   const createMutation = useMutation({
     mutationFn: (data: Parameters<typeof aiBacktestApi.create>[0]) => aiBacktestApi.create(data),
     onSuccess: (res) => {
@@ -83,6 +93,22 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     },
     onError: (err: any) => {
       message.error('创建回测失败: ' + (err?.message || '未知错误'));
+    },
+  });
+
+  // 创建多策略回测
+  const createMultiMutation = useMutation({
+    mutationFn: (data: Parameters<typeof aiBacktestApi.createMulti>[0]) => aiBacktestApi.createMulti(data),
+    onSuccess: (res) => {
+      setCurrentBacktestId(res.data.backtests[0].id);
+      setIsRunning(true);
+      setAIAnalysis(null);
+      setProgress(null);
+      setBacktestAnalysis(null);
+      setActiveTab('progress');
+    },
+    onError: (err: any) => {
+      message.error('创建多策略回测失败: ' + (err?.message || '未知错误'));
     },
   });
 
@@ -144,6 +170,19 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     },
   });
 
+  // 多策略融合优化
+  const mergeOptimizeMutation = useMutation({
+    mutationFn: (data: MergeOptimizeRequest) => aiBacktestApi.mergeOptimize(data),
+    onSuccess: () => {
+      message.success('策略融合优化完成');
+      queryClient.invalidateQueries({ queryKey: ['strategies', 'list'] });
+      setMergeModalOpen(false);
+    },
+    onError: (err: any) => {
+      message.error('融合优化失败: ' + (err?.message || '未知错误'));
+    },
+  });
+
   const handleSSEMessage = useCallback((data: any) => {
     setProgress(data);
     // 提取 AI 分析数据
@@ -175,6 +214,12 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   });
 
   const handleStart = () => {
+    const promptTemplateIds = config.promptTemplateIds
+      ? Object.fromEntries(
+          Object.entries(config.promptTemplateIds).filter(([, v]) => v !== null),
+        )
+      : undefined;
+
     const payload = {
       strategy_id: config.strategyId,
       symbol: config.symbol,
@@ -188,8 +233,16 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
       fee_rate: config.feeRate,
       use_ai: config.useAI,
       prerequisites: config.prerequisites,
+      use_local_model: config.useLocalModel,
+      local_model_klines: config.localModelKlines,
+      prompt_template_ids: promptTemplateIds,
     };
-    createMutation.mutate(payload);
+
+    if (config.backtestMode === 'multi' && config.strategyIds && config.strategyIds.length > 0) {
+      createMultiMutation.mutate({ ...payload, strategy_ids: config.strategyIds });
+    } else {
+      createMutation.mutate(payload);
+    }
   };
 
   const handleStop = () => {
@@ -240,7 +293,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
                 config={config}
                 onChange={setConfig}
                 onSubmit={handleStart}
-                loading={createMutation.isPending}
+                loading={createMutation.isPending || createMultiMutation.isPending}
                 disabled={isRunning}
                 strategies={strategyOptions}
               />
@@ -271,6 +324,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
                 page={tradePage}
                 onPageChange={setTradePage}
                 onAnalyze={isDetailCompleted ? handleAnalyze : undefined}
+                onMergeOptimize={() => setMergeModalOpen(true)}
               />
             ),
           },
@@ -300,6 +354,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
           },
         ]}
       />
+      <MergeOptimizeModal open={mergeModalOpen} onClose={() => setMergeModalOpen(false)} />
     </Card>
   );
 };

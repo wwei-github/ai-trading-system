@@ -9,11 +9,16 @@ import {
   Statistic,
   Descriptions,
   Button,
+  Alert,
+  Row,
+  Col,
+  Rate,
 } from 'antd';
 import { StopOutlined } from '@ant-design/icons';
 import type {
   AIBacktestProgress as AIBacktestProgressType,
   AIBacktestAIAnalysis,
+  KeyLevel,
 } from '@/types/ai-backtest';
 
 const { Text, Title, Paragraph } = Typography;
@@ -39,6 +44,13 @@ const DECISION_MAP: Record<string, { label: string; color: string }> = {
   close_long: { label: '平多', color: 'orange' },
   close_short: { label: '平空', color: 'orange' },
   hold: { label: '持有', color: 'default' },
+};
+
+const TRIGGER_REASON_MAP: Record<string, { label: string; color: string }> = {
+  precheck_pass: { label: '预筛通过', color: 'blue' },
+  key_level_hit: { label: '关键位触发', color: 'magenta' },
+  position_closed: { label: '持仓平仓', color: 'orange' },
+  initial: { label: '初始分析', color: 'purple' },
 };
 
 interface Props {
@@ -71,6 +83,18 @@ export const AIBacktestProgress: React.FC<Props> = ({
   const isRunning =
     progress.stage === 'running' || progress.stage === 'preheat' || progress.stage === 'summary';
   const stageColor = isError ? 'red' : isDone ? 'green' : isCancelled ? 'orange' : 'blue';
+
+  // 预筛统计
+  const precheckTotal = progress.precheck_total ?? 0;
+  const precheckTriggered = progress.precheck_triggered ?? 0;
+  const triggerRate =
+    precheckTotal > 0 ? ((precheckTriggered / precheckTotal) * 100).toFixed(1) : '0.0';
+  const estimatedSaved = Math.max(0, precheckTotal - precheckTriggered);
+
+  // 预筛模式
+  const isLocalModel = progress.precheck_mode === 'local_model';
+  const precheckModeLabel = isLocalModel ? '本地模型预筛' : '规则引擎预筛';
+  const precheckModeColor = isLocalModel ? 'purple' : 'blue';
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
@@ -149,46 +173,194 @@ export const AIBacktestProgress: React.FC<Props> = ({
         </Card>
       )}
 
-      {/* AI 实时分析面板 */}
+      {/* 预筛统计 */}
+      {progress.precheck_total !== undefined && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Tag color="blue">预筛 {precheckTotal} 次</Tag>
+            <Tag color="green">触发 AI {precheckTriggered} 次</Tag>
+            <Tag color="purple">触发率 {triggerRate}%</Tag>
+            <Tag color={precheckModeColor}>{precheckModeLabel}</Tag>
+          </Space>
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary">
+              AI 调用 {precheckTriggered} 次（预估节省 {estimatedSaved} 次）
+            </Text>
+          </div>
+        </Card>
+      )}
+
+      {/* 持仓暂停指示 */}
+      {progress.has_position && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          showIcon
+          message={
+            <Space>
+              <Text strong>AI 分析已暂停</Text>
+              {progress.current_position?.direction && (
+                <Tag color={progress.current_position.direction === 'long' ? 'red' : 'green'}>
+                  {progress.current_position.direction === 'long' ? '多头持仓' : '空头持仓'}
+                </Tag>
+              )}
+            </Space>
+          }
+          description="持仓期间暂停 AI 分析，平仓后自动恢复"
+        />
+      )}
+
+      {/* AI 分析触发原因 */}
+      {progress.trigger_reason && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space>
+            <Text strong>触发原因: </Text>
+            <Tag color={TRIGGER_REASON_MAP[progress.trigger_reason]?.color || 'default'}>
+              {TRIGGER_REASON_MAP[progress.trigger_reason]?.label || progress.trigger_reason}
+            </Tag>
+          </Space>
+        </Card>
+      )}
+
+      {/* AI 分析窗口信息 */}
+      {progress.analysis_window && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Text strong>分析窗口: </Text>
+            <Text>
+              K 线范围: {progress.analysis_window.start} - {progress.analysis_window.end}
+            </Text>
+            <Text>窗口大小: {progress.analysis_window.size} 根</Text>
+          </Space>
+        </Card>
+      )}
+
+      {/* 当前持仓详情 */}
+      {progress.has_position && progress.current_position && (
+        <Card size="small" title="当前持仓详情" style={{ marginBottom: 16 }}>
+          <Row gutter={16}>
+            <Col span={4}>
+              <Statistic
+                title="方向"
+                value={progress.current_position.direction === 'long' ? '多头' : '空头'}
+                valueStyle={{
+                  color: progress.current_position.direction === 'long' ? '#ff4d4f' : '#52c41a',
+                }}
+              />
+            </Col>
+            <Col span={5}>
+              <Statistic
+                title="开仓价"
+                value={progress.current_position.entry_price ?? 0}
+                precision={2}
+              />
+            </Col>
+            <Col span={5}>
+              <Statistic
+                title="止损价"
+                value={progress.current_position.stop_loss ?? 0}
+                precision={2}
+                valueStyle={{ color: '#ff4d4f' }}
+              />
+            </Col>
+            <Col span={5}>
+              <Statistic
+                title="止盈价"
+                value={progress.current_position.take_profit ?? 0}
+                precision={2}
+                valueStyle={{ color: '#52c41a' }}
+              />
+            </Col>
+            <Col span={5}>
+              <Statistic
+                title="未实现盈亏"
+                value={progress.current_position.unrealized_pnl ?? 0}
+                precision={2}
+                valueStyle={{
+                  color:
+                    (progress.current_position.unrealized_pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f',
+                }}
+              />
+            </Col>
+          </Row>
+        </Card>
+      )}
+
+      {/* AI 实时分析面板（增强版） */}
       {aiAnalysis && (
         <Card title="AI 实时分析" style={{ marginBottom: 16 }}>
-          <Descriptions column={2} size="small" bordered>
-            <Descriptions.Item label="市场趋势">
-              <Tag color={TREND_MAP[aiAnalysis.trend]?.color || 'default'}>
-                {TREND_MAP[aiAnalysis.trend]?.label || aiAnalysis.trend}
-              </Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="趋势强度">
-              {'★'.repeat(aiAnalysis.strength)}
-              {'☆'.repeat(5 - aiAnalysis.strength)}
-            </Descriptions.Item>
-            <Descriptions.Item label="建议决策" span={2}>
-              <Tag color={DECISION_MAP[aiAnalysis.decision]?.color || 'default'}>
-                {DECISION_MAP[aiAnalysis.decision]?.label || aiAnalysis.decision}
-              </Tag>
-              <Text style={{ marginLeft: 8 }}>
-                置信度: {'★'.repeat(aiAnalysis.confidence)}
-                {'☆'.repeat(5 - aiAnalysis.confidence)}
-              </Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="分析摘要" span={2}>
-              <Paragraph
-                style={{
-                  background: '#f5f5f5',
-                  padding: 8,
-                  borderRadius: 4,
-                  fontSize: 12,
-                  whiteSpace: 'pre-wrap',
-                  margin: 0,
-                }}
-              >
-                {aiAnalysis.summary}
-              </Paragraph>
-            </Descriptions.Item>
-            <Descriptions.Item label="决策理由" span={2}>
-              <Text>{aiAnalysis.reason || '-'}</Text>
-            </Descriptions.Item>
-          </Descriptions>
+          <Row gutter={[16, 12]}>
+            <Col span={12}>
+              <Space>
+                <Text type="secondary">市场趋势:</Text>
+                <Tag color={TREND_MAP[aiAnalysis.trend]?.color || 'default'}>
+                  {TREND_MAP[aiAnalysis.trend]?.label || aiAnalysis.trend}
+                </Tag>
+              </Space>
+            </Col>
+            <Col span={12}>
+              <Space>
+                <Text type="secondary">建议决策:</Text>
+                <Tag color={DECISION_MAP[aiAnalysis.decision]?.color || 'default'}>
+                  {DECISION_MAP[aiAnalysis.decision]?.label || aiAnalysis.decision}
+                </Tag>
+              </Space>
+            </Col>
+          </Row>
+
+          <div style={{ marginTop: 12 }}>
+            <Space>
+              <Text type="secondary">趋势强度:</Text>
+              <Rate disabled count={5} value={aiAnalysis.strength} style={{ fontSize: 14 }} />
+            </Space>
+          </div>
+
+          <div style={{ marginTop: 8 }}>
+            <Space>
+              <Text type="secondary">置信度:</Text>
+              <Rate disabled count={5} value={aiAnalysis.confidence} style={{ fontSize: 14 }} />
+            </Space>
+          </div>
+
+          {/* 关键位 */}
+          {progress.key_levels && progress.key_levels.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <Space wrap>
+                <Text type="secondary">关键位:</Text>
+                {progress.key_levels.map((level: KeyLevel, idx: number) => (
+                  <Tag key={idx} color={level.type === 'support' ? 'cyan' : 'magenta'}>
+                    {level.type === 'support' ? '支撑' : '阻力'} {level.price.toFixed(2)}
+                  </Tag>
+                ))}
+              </Space>
+            </div>
+          )}
+
+          {/* 分析摘要 */}
+          <div style={{ marginTop: 12 }}>
+            <Text type="secondary">分析摘要:</Text>
+            <Paragraph
+              style={{
+                background: '#f5f5f5',
+                padding: 12,
+                borderRadius: 4,
+                fontSize: 12,
+                whiteSpace: 'pre-wrap',
+                margin: '8px 0 0 0',
+                borderLeft: '3px solid #1677ff',
+              }}
+            >
+              {aiAnalysis.summary}
+            </Paragraph>
+          </div>
+
+          {/* 决策理由 */}
+          {aiAnalysis.reason && (
+            <div style={{ marginTop: 12 }}>
+              <Text type="secondary">决策理由: </Text>
+              <Text>{aiAnalysis.reason}</Text>
+            </div>
+          )}
         </Card>
       )}
     </div>

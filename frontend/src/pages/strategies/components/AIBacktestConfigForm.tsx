@@ -1,11 +1,19 @@
 import React from 'react';
 import {
   Form, InputNumber, Select, DatePicker, Switch, Button, Space,
-  Card, Row, Col, Typography, Divider, Alert, Collapse, Tag,
+  Card, Row, Col, Typography, Divider, Alert, Collapse, Tag, Radio,
 } from 'antd';
-import { PlayCircleOutlined, SettingOutlined } from '@ant-design/icons';
+import {
+  PlayCircleOutlined,
+  SettingOutlined,
+  RobotOutlined,
+  AppstoreAddOutlined,
+  FileTextOutlined,
+} from '@ant-design/icons';
+import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import type { AIBacktestConfig } from '@/types/ai-backtest';
+import { promptTemplateApi } from '@/api/ai-backtest';
 
 const { Text, Title } = Typography;
 
@@ -23,6 +31,33 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
 }) => {
   const [form] = Form.useForm();
 
+  // 拉取三类 Prompt 模板选项
+  const { data: initialAnalysisRes } = useQuery({
+    queryKey: ['promptTemplates', 'initial_analysis'],
+    queryFn: () => promptTemplateApi.list('initial_analysis'),
+  });
+  const { data: precheckRes } = useQuery({
+    queryKey: ['promptTemplates', 'backtest_precheck'],
+    queryFn: () => promptTemplateApi.list('backtest_precheck'),
+  });
+  const { data: deepAnalysisRes } = useQuery({
+    queryKey: ['promptTemplates', 'deep_analysis'],
+    queryFn: () => promptTemplateApi.list('deep_analysis'),
+  });
+
+  const initialAnalysisOptions = (initialAnalysisRes?.data || []).map(t => ({
+    label: t.name,
+    value: t.id,
+  }));
+  const precheckOptions = (precheckRes?.data || []).map(t => ({
+    label: t.name,
+    value: t.id,
+  }));
+  const deepAnalysisOptions = (deepAnalysisRes?.data || []).map(t => ({
+    label: t.name,
+    value: t.id,
+  }));
+
   const handleSubmit = async () => {
     try {
       await form.validateFields();
@@ -31,6 +66,23 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
       // 表单校验失败，antd 会显示错误信息
     }
   };
+
+  const isMulti = config.backtestMode === 'multi';
+  const useLocal = config.useLocalModel === true;
+
+  const prefilterAlertProps = useLocal
+    ? {
+        type: 'success' as const,
+        message: '本地模型预筛模式',
+        description:
+          '使用本地轻量模型对每根 K 线进行预筛，仅在触发条件时调用主 AI，可显著节省 Token 消耗。预筛 K 线数量决定本地模型分析窗口大小。',
+      }
+    : {
+        type: 'warning' as const,
+        message: '主 AI 预筛模式',
+        description:
+          '每根 K 线都直接调用主 AI 进行分析，无预筛环节，分析更细致但消耗更多 Token。建议在长周期回测时启用本地模型预筛。',
+      };
 
   return (
     <div style={{ maxWidth: 700, margin: '0 auto' }}>
@@ -63,6 +115,11 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
             },
             strict_execution: { enabled: config.prerequisites?.strict_execution?.enabled ?? true },
           },
+          backtestMode: config.backtestMode ?? 'single',
+          strategyIds: config.strategyIds ?? [],
+          useLocalModel: config.useLocalModel ?? false,
+          localModelKlines: config.localModelKlines ?? 10,
+          promptTemplateIds: config.promptTemplateIds ?? {},
         }}
         onValuesChange={(changed, all) => {
           const prerequisites = {
@@ -94,22 +151,71 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
             feeRate: all.feeRate,
             useAI: all.useAI,
             prerequisites,
+            backtestMode: all.backtestMode,
+            strategyIds: all.strategyIds,
+            useLocalModel: all.useLocalModel,
+            localModelKlines: all.localModelKlines,
+            promptTemplateIds: all.promptTemplateIds,
           });
         }}
         disabled={disabled}
       >
-        <Row gutter={16}>
-          <Col span={12}>
-            <Form.Item label="选择策略" name="strategyId" rules={[{ required: true, message: '请选择策略' }]}>
+        {/* 回测模式：单策略 / 多策略 */}
+        <Form.Item label="回测模式" name="backtestMode" rules={[{ required: true }]}>
+          <Radio.Group>
+            <Radio value="single">单策略回测</Radio>
+            <Radio value="multi">多策略回测</Radio>
+          </Radio.Group>
+        </Form.Item>
+
+        {/* 策略选择：根据回测模式切换 */}
+        {isMulti ? (
+          <Card size="small" style={{ marginBottom: 16 }}>
+            <Space align="center" style={{ marginBottom: 12 }}>
+              <AppstoreAddOutlined />
+              <Text strong>多策略选择（2-5 个）</Text>
+            </Space>
+            <Form.Item
+              label="策略列表"
+              name="strategyIds"
+              rules={[
+                { required: true, message: '请选择策略' },
+                {
+                  validator: (_, value: string[]) => {
+                    if (!value || value.length < 2) {
+                      return Promise.reject('至少选择 2 个策略');
+                    }
+                    if (value.length > 5) {
+                      return Promise.reject('最多选择 5 个策略');
+                    }
+                    return Promise.resolve();
+                  },
+                },
+              ]}
+            >
               <Select
+                mode="multiple"
                 allowClear
-                placeholder="请选择策略"
+                placeholder="请选择 2-5 个策略"
                 showSearch
                 optionFilterProp="label"
                 options={(strategies || []).map(s => ({ label: s.name, value: s.id }))}
               />
             </Form.Item>
-          </Col>
+          </Card>
+        ) : (
+          <Form.Item label="选择策略" name="strategyId" rules={[{ required: true, message: '请选择策略' }]}>
+            <Select
+              allowClear
+              placeholder="请选择策略"
+              showSearch
+              optionFilterProp="label"
+              options={(strategies || []).map(s => ({ label: s.name, value: s.id }))}
+            />
+          </Form.Item>
+        )}
+
+        <Row gutter={16}>
           <Col span={12}>
             <Form.Item label="交易对" name="symbol" rules={[{ required: true }]}>
               <Select
@@ -117,9 +223,6 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
               />
             </Form.Item>
           </Col>
-        </Row>
-
-        <Row gutter={16}>
           <Col span={12}>
             <Form.Item label="K 线周期" name="timeframe" rules={[{ required: true }]}>
               <Select
@@ -219,6 +322,114 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
 
         <Divider />
 
+        {/* 本地模型预筛配置 */}
+        <Card
+          size="small"
+          title={
+            <Space>
+              <RobotOutlined />
+              <span>本地模型预筛配置</span>
+            </Space>
+          }
+          style={{ marginBottom: 16 }}
+        >
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item
+                label="预筛模式"
+                name="useLocalModel"
+                valuePropName="checked"
+                extra="本地模型辅助 vs 主AI预筛"
+              >
+                <Switch
+                  checkedChildren="本地模型"
+                  unCheckedChildren="主AI"
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label="预筛 K 线数量"
+                name="localModelKlines"
+                rules={[{ type: 'number', min: 5, max: 50 }]}
+                extra="范围 5-50，默认 10"
+              >
+                <InputNumber
+                  min={5}
+                  max={50}
+                  defaultValue={10}
+                  style={{ width: '100%' }}
+                  addonAfter="根"
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Alert
+            type={prefilterAlertProps.type}
+            message={prefilterAlertProps.message}
+            description={prefilterAlertProps.description}
+            showIcon
+          />
+        </Card>
+
+        {/* Prompt 模板选择 */}
+        <Collapse
+          items={[
+            {
+              key: 'promptTemplates',
+              label: (
+                <Space>
+                  <FileTextOutlined />
+                  <span>Prompt 模板配置</span>
+                  <Tag color="purple" style={{ marginLeft: 8 }}>
+                    可选
+                  </Tag>
+                </Space>
+              ),
+              children: (
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  <Form.Item
+                    label="初始分析模板"
+                    name={['promptTemplateIds', 'initial_analysis']}
+                    tooltip="回测启动时对初始 K 线窗口进行的趋势分析 Prompt"
+                  >
+                    <Select
+                      allowClear
+                      placeholder="使用默认模板"
+                      options={initialAnalysisOptions}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    label="回测预筛模板"
+                    name={['promptTemplateIds', 'backtest_precheck']}
+                    tooltip="每根 K 线预筛阶段使用的 Prompt（决定是否触发深度分析）"
+                  >
+                    <Select
+                      allowClear
+                      placeholder="使用默认模板"
+                      options={precheckOptions}
+                    />
+                  </Form.Item>
+                  <Form.Item
+                    label="深度分析模板"
+                    name={['promptTemplateIds', 'deep_analysis']}
+                    tooltip="预筛触发后进行的深度 AI 分析 Prompt"
+                  >
+                    <Select
+                      allowClear
+                      placeholder="使用默认模板"
+                      options={deepAnalysisOptions}
+                    />
+                  </Form.Item>
+                </Space>
+              ),
+            },
+          ]}
+          style={{ marginBottom: 16 }}
+          defaultActiveKey={[]}
+        />
+
+        {/* 策略前提规则 */}
         <Collapse
           items={[
             {
