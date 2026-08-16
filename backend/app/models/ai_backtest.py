@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import (
     Boolean, DateTime, Float, ForeignKey, Integer, Numeric, String, Text,
@@ -49,7 +49,7 @@ class AIBacktest(Base):
 
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="pending"
-    )  # pending / running / completed / failed
+    )  # pending / running / completed / failed / cancelling / cancelled
 
     result_summary: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
@@ -58,6 +58,52 @@ class AIBacktest(Base):
     )
     completed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+    # ========== 08-AI回测K线分析优化 新增字段 ==========
+
+    # 多策略融合
+    parent_backtest_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ai_backtests.id", ondelete="SET NULL"),
+        nullable=True, index=True, comment="父回测 ID（多策略融合时使用）"
+    )
+    strategy_ids: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, comment="参与回测的策略 ID 列表"
+    )
+
+    # 两级 AI 过滤统计
+    ai_call_count: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=0, comment="AI 调用总次数"
+    )
+    precheck_total: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=0, comment="快速预筛总次数"
+    )
+    precheck_triggered: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, default=0, comment="预筛触发 AI 分析次数"
+    )
+
+    # 本地模型预筛配置
+    use_local_model: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, comment="使用本地模型进行预筛"
+    )
+    local_model_klines: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=10, comment="本地模型分析的 K 线数量"
+    )
+
+    # 初始化 300 根预热分析
+    initial_analysis: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, comment="初始化 AI 分析结果（趋势、关键位、摘要）"
+    )
+
+    # 深度分析日志
+    ai_analysis_logs: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, default_factory=list, comment="深度分析日志列表（复盘用）"
+    )
+
+    # Prompt 模板 ID 映射
+    prompt_template_ids: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, default_factory=dict,
+        comment="使用的 Prompt 模板 ID 映射 {category: template_id}"
     )
 
     # 关系

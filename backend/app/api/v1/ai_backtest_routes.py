@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user, get_db, get_pagination
 from app.core.database import redis_client
 from app.models.user import User
-from app.schemas.ai_backtest import AIBacktestCreate
+from app.schemas.ai_backtest import (
+    AIBacktestCreate,
+    AIBacktestProgress,
+    MergeOptimizeRequest,
+)
 from app.schemas.common import ApiResponse, PaginatedResponse, PaginationParams
 from app.services.ai_backtest_service import AIBacktestService
 

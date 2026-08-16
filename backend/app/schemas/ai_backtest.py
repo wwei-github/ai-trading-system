@@ -22,6 +22,17 @@ class AIBacktestCreate(BaseModel):
     fee_rate: float = Field(default=0.001, ge=0, le=0.01)
     use_ai: bool = True
 
+    # ========== 08-AI回测K线分析优化 新增字段 ==========
+    use_local_model: bool = Field(
+        default=False, description="使用本地模型进行快速预筛"
+    )
+    local_model_klines: int = Field(
+        default=10, ge=1, le=100, description="本地模型预筛时分析的 K 线数量"
+    )
+    strategy_ids: Optional[List[UUID]] = Field(
+        default=None, description="多策略融合时，参与优化的策略 ID 列表"
+    )
+
 
 class AIBacktestResponse(BaseModel):
     """AI 回测响应。"""
@@ -48,6 +59,18 @@ class AIBacktestResponse(BaseModel):
     completed_at: Optional[datetime] = None
     result_summary: Optional[Dict[str, Any]] = None
     created_at: datetime
+
+    # ========== 08-AI回测K线分析优化 新增字段 ==========
+    parent_backtest_id: Optional[UUID] = None
+    strategy_ids: Optional[List[UUID]] = None
+    ai_call_count: Optional[int] = 0
+    precheck_total: Optional[int] = 0
+    precheck_triggered: Optional[int] = 0
+    use_local_model: bool = False
+    local_model_klines: int = 10
+    initial_analysis: Optional[Dict[str, Any]] = None
+    ai_analysis_logs: Optional[List[Dict[str, Any]]] = None
+    prompt_template_ids: Optional[Dict[str, str]] = None
 
     model_config = {"from_attributes": True}
 
@@ -78,6 +101,11 @@ class AIBacktestTradeResponse(BaseModel):
     extra: Optional[Dict[str, Any]] = None
     created_at: datetime
 
+    # ========== 08-AI回测K线分析优化 新增字段 ==========
+    ai_window_start: Optional[int] = None
+    ai_window_end: Optional[int] = None
+    trigger_reason: Optional[str] = None
+
     model_config = {"from_attributes": True}
 
 
@@ -92,6 +120,23 @@ class AIBacktestProgress(BaseModel):
     current_trades: int = 0
     current_position: Optional[Dict[str, Any]] = None
     message: str = ""
+
+    # ========== 08-AI回测K线分析优化 新增字段 ==========
+    precheck_total: int = 0
+    precheck_triggered: int = 0
+    ai_call_count: int = 0
+    current_stage_detail: str = ""  # precheck / deep_analysis / rule / suspended
+
+
+class MergeOptimizeRequest(BaseModel):
+    """多策略融合优化请求。"""
+
+    name: str = Field(default="", description="融合后新策略名称")
+    description: Optional[str] = Field(default=None, description="新策略描述")
+    strategy_ids: List[UUID] = Field(..., min_length=2, description="要融合的策略 ID 列表")
+    backtest_id: UUID = Field(..., description="作为父回测的 AI 回测 ID")
+    timeframe: str = Field(default="15m", pattern=r"^(15m|1h|4h|1d)$")
+    symbol: str = Field(default="BTC/USDT", max_length=20)
 
 
 class AIBacktestListResponse(BaseModel):
@@ -110,3 +155,10 @@ class AIBacktestListResponse(BaseModel):
     trade_count: int = 0
     created_at: datetime
     completed_at: Optional[datetime] = None
+
+    # ========== 08-AI回测K线分析优化 新增字段 ==========
+    use_local_model: bool = False
+    ai_call_count: Optional[int] = 0
+    precheck_total: Optional[int] = 0
+    precheck_triggered: Optional[int] = 0
+    parent_backtest_id: Optional[UUID] = None

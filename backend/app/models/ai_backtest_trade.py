@@ -48,5 +48,16 @@ class AIBacktestTrade(Base):
 
     extra: Mapped[Optional[Any]] = mapped_column(JSONB, nullable=True)
 
+    # ========== 08-AI回测K线分析优化 新增字段 ==========
+    ai_window_start: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="AI 分析时 K 线窗口起始索引"
+    )
+    ai_window_end: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True, comment="AI 分析时 K 线窗口结束索引"
+    )
+    trigger_reason: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True, comment="触发 AI 分析的原因（预筛命中规则）"
+    )
+
     # 关系
     backtest = relationship("AIBacktest", back_populates="trades")

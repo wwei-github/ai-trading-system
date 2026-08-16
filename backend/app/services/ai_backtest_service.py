@@ -20,6 +20,7 @@ from app.schemas.ai_backtest import (
     AIBacktestProgress,
     AIBacktestResponse,
     AIBacktestTradeResponse,
+    MergeOptimizeRequest,
 )
 from app.services.coin_service import CoinService
 from app.services.provider_factory import ProviderFactory
@@ -75,6 +76,10 @@ class AIBacktestService:
             use_ai=data.use_ai,
             total_klines=total_klines,
             status="pending",
+            # 08-AI回测K线分析优化 新增字段
+            use_local_model=data.use_local_model,
+            local_model_klines=data.local_model_klines,
+            strategy_ids=data.strategy_ids,
         )
         self.db.add(backtest)
         await self.db.flush()
@@ -229,6 +234,12 @@ class AIBacktestService:
                     trade_count=trade_count,
                     created_at=bt.created_at,
                     completed_at=bt.completed_at,
+                    # 08-AI回测K线分析优化 新增字段
+                    use_local_model=bt.use_local_model,
+                    ai_call_count=bt.ai_call_count,
+                    precheck_total=bt.precheck_total,
+                    precheck_triggered=bt.precheck_triggered,
+                    parent_backtest_id=bt.parent_backtest_id,
                 )
             )
         return items, total
@@ -538,4 +549,15 @@ class AIBacktestService:
             completed_at=backtest.completed_at,
             result_summary=backtest.result_summary,
             created_at=backtest.created_at,
+            # 08-AI回测K线分析优化 新增字段
+            parent_backtest_id=backtest.parent_backtest_id,
+            strategy_ids=backtest.strategy_ids,
+            ai_call_count=backtest.ai_call_count,
+            precheck_total=backtest.precheck_total,
+            precheck_triggered=backtest.precheck_triggered,
+            use_local_model=backtest.use_local_model,
+            local_model_klines=backtest.local_model_klines,
+            initial_analysis=backtest.initial_analysis,
+            ai_analysis_logs=backtest.ai_analysis_logs,
+            prompt_template_ids=backtest.prompt_template_ids,
         )
