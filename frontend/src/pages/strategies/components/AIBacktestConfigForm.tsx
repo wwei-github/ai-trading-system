@@ -34,26 +34,26 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
   // 拉取三类 Prompt 模板选项
   const { data: initialAnalysisRes } = useQuery({
     queryKey: ['promptTemplates', 'initial_analysis'],
-    queryFn: () => promptTemplateApi.list('initial_analysis'),
+    queryFn: () => promptTemplateApi.list({ category: 'initial_analysis', active_only: true }),
   });
   const { data: precheckRes } = useQuery({
     queryKey: ['promptTemplates', 'backtest_precheck'],
-    queryFn: () => promptTemplateApi.list('backtest_precheck'),
+    queryFn: () => promptTemplateApi.list({ category: 'backtest_precheck', active_only: true }),
   });
   const { data: deepAnalysisRes } = useQuery({
     queryKey: ['promptTemplates', 'deep_analysis'],
-    queryFn: () => promptTemplateApi.list('deep_analysis'),
+    queryFn: () => promptTemplateApi.list({ category: 'deep_analysis', active_only: true }),
   });
 
-  const initialAnalysisOptions = (initialAnalysisRes?.data || []).map(t => ({
+  const initialAnalysisOptions = (initialAnalysisRes?.data?.items || []).map(t => ({
     label: t.name,
     value: t.id,
   }));
-  const precheckOptions = (precheckRes?.data || []).map(t => ({
+  const precheckOptions = (precheckRes?.data?.items || []).map(t => ({
     label: t.name,
     value: t.id,
   }));
-  const deepAnalysisOptions = (deepAnalysisRes?.data || []).map(t => ({
+  const deepAnalysisOptions = (deepAnalysisRes?.data?.items || []).map(t => ({
     label: t.name,
     value: t.id,
   }));

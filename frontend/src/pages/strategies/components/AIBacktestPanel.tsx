@@ -10,7 +10,6 @@ import type {
   AIBacktestProgress,
   AIBacktestAIAnalysis,
   AIBacktestAnalysisResult,
-  MergeOptimizeRequest,
 } from '@/types/ai-backtest';
 import { AIBacktestConfigForm } from './AIBacktestConfigForm';
 import { AIBacktestProgress as AIBacktestProgressComp } from './AIBacktestProgress';
@@ -96,21 +95,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     },
   });
 
-  // 创建多策略回测
-  const createMultiMutation = useMutation({
-    mutationFn: (data: Parameters<typeof aiBacktestApi.createMulti>[0]) => aiBacktestApi.createMulti(data),
-    onSuccess: (res) => {
-      setCurrentBacktestId(res.data.backtests[0].id);
-      setIsRunning(true);
-      setAIAnalysis(null);
-      setProgress(null);
-      setBacktestAnalysis(null);
-      setActiveTab('progress');
-    },
-    onError: (err: any) => {
-      message.error('创建多策略回测失败: ' + (err?.message || '未知错误'));
-    },
-  });
+  // 创建多策略回测 - 后端 /multi 接口未实现,移除相关逻辑
 
   // 回测详情
   const detailQuery = useQuery({
@@ -170,18 +155,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     },
   });
 
-  // 多策略融合优化
-  const mergeOptimizeMutation = useMutation({
-    mutationFn: (data: MergeOptimizeRequest) => aiBacktestApi.mergeOptimize(data),
-    onSuccess: () => {
-      message.success('策略融合优化完成');
-      queryClient.invalidateQueries({ queryKey: ['strategies', 'list'] });
-      setMergeModalOpen(false);
-    },
-    onError: (err: any) => {
-      message.error('融合优化失败: ' + (err?.message || '未知错误'));
-    },
-  });
+  // 多策略融合优化 - 由 MergeOptimizeModal 内部处理 mutation,无需在此定义
 
   const handleSSEMessage = useCallback((data: any) => {
     setProgress(data);
@@ -238,11 +212,12 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
       prompt_template_ids: promptTemplateIds,
     };
 
-    if (config.backtestMode === 'multi' && config.strategyIds && config.strategyIds.length > 0) {
-      createMultiMutation.mutate({ ...payload, strategy_ids: config.strategyIds });
-    } else {
-      createMutation.mutate(payload);
+    // 后端 /multi 接口未实现,多策略回测暂时禁用,统一走单策略
+    if (config.backtestMode === 'multi') {
+      message.warning('多策略回测接口暂未实现,请使用单策略回测。融合优化请在历史记录中手动选择已完成回测进行。');
+      return;
     }
+    createMutation.mutate(payload);
   };
 
   const handleStop = () => {
@@ -293,7 +268,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
                 config={config}
                 onChange={setConfig}
                 onSubmit={handleStart}
-                loading={createMutation.isPending || createMultiMutation.isPending}
+                loading={createMutation.isPending}
                 disabled={isRunning}
                 strategies={strategyOptions}
               />

@@ -331,22 +331,40 @@ export interface AIBacktestEfficiency {
   estimated_saved_calls: number;
 }
 
-// 融合优化请求
+// 融合优化请求（对齐后端 schemas/ai_backtest.py::MergeOptimizeRequest）
+// 路径: POST /strategies/ai-backtest/{backtest_id}/merge-optimize
 export interface MergeOptimizeRequest {
-  backtest_ids: string[];
-  new_strategy_name?: string;
+  /** 父回测 ID（路径参数,提交时透传） */
+  backtest_id: string;
+  /** 参与融合的策略 ID 列表,至少 2 个 */
+  strategy_ids: string[];
+  /** 交易对,默认 BTC/USDT */
+  symbol: string;
+  /** 时间周期: 15m/1h/4h/1d,默认 15m */
+  timeframe: '15m' | '1h' | '4h' | '1d';
+  /** 新策略名称,留空自动生成 */
+  name?: string;
+  /** 新策略描述 */
+  description?: string;
 }
 
-// 融合优化结果
+// 融合优化结果（对齐 docs/api/15-ai-backtest.md §10）
 export interface MergeOptimizeResult {
   id: string;
-  name: string;
-  rules: Record<string, any>;
-  source_backtest_ids: string[];
-  source_strategy_names: string[];
+  strategy_id: string;
+  strategy_name: string;
+  parent_backtest_id: string;
+  strategy_ids: string[];
+  status: string;
+  symbol: string;
+  timeframe: string;
+  total_klines: number;
+  completed_klines: number;
+  progress: number;
+  created_at: string;
 }
 
-// 多策略回测创建结果
+// 多策略回测创建结果（后端 /multi 接口未实现,保留类型供未来使用）
 export interface MultiBacktestCreateResult {
   backtests: Array<{
     id: string;
@@ -356,15 +374,47 @@ export interface MultiBacktestCreateResult {
   }>;
 }
 
-// Prompt 模板
+// Prompt 模板（对齐后端 schemas/prompt_template.py::PromptTemplateResponse）
+// 注意: 后端仅支持 3 类: initial_analysis / backtest_precheck / deep_analysis
 export interface PromptTemplate {
   id: string;
+  category: 'initial_analysis' | 'backtest_precheck' | 'deep_analysis';
   name: string;
-  category: 'backtest_precheck' | 'deep_analysis' | 'merge_optimize' | 'initial_analysis';
   content: string;
-  description?: string;
-  variables?: Record<string, string>;
-  is_default: boolean;
-  is_system: boolean;
+  is_active: boolean;
+  version: number;
   created_at: string;
+  updated_at?: string | null;
+}
+
+// Prompt 模板列表项（简化版,无 content）
+export interface PromptTemplateListItem {
+  id: string;
+  category: 'initial_analysis' | 'backtest_precheck' | 'deep_analysis';
+  name: string;
+  is_active: boolean;
+  version: number;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+// Prompt 模板列表响应
+export interface PromptTemplateListResponse {
+  items: PromptTemplateListItem[];
+  total: number;
+}
+
+// 创建 Prompt 模板请求
+export interface PromptTemplateCreateRequest {
+  category: 'initial_analysis' | 'backtest_precheck' | 'deep_analysis';
+  name: string;
+  content: string;
+  is_active?: boolean;
+}
+
+// 更新 Prompt 模板请求（PATCH,所有字段可选）
+export interface PromptTemplateUpdateRequest {
+  name?: string;
+  content?: string;
+  is_active?: boolean;
 }

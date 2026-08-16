@@ -19,6 +19,12 @@
 9. [策略优化](#9-策略优化)
 10. [多策略融合优化](#10-多策略融合优化)
 11. [Prompt 模板管理](#11-prompt-模板管理)
+    - 11.1 获取模板列表
+    - 11.2 获取模板详情
+    - 11.3 创建模板
+    - 11.4 更新模板（PATCH）
+    - 11.5 删除模板
+    - 11.6 未实现的接口
 12. [数据模型](#12-数据模型)
 
 ---
@@ -655,8 +661,7 @@ POST /strategies/ai-backtest/{backtest_id}/merge-optimize
   "strategy_ids": ["UUID1", "UUID2", "UUID3"],
   "symbol": "BTC/USDT",
   "timeframe": "15m",
-  "name": "融合策略名称",
-  "description": "融合 desc"
+  "name": "融合策略名称"
 }
 ```
 
@@ -668,7 +673,11 @@ POST /strategies/ai-backtest/{backtest_id}/merge-optimize
 | symbol | string | 是 | - | 交易对 |
 | timeframe | string | 是 | - | 时间周期 |
 | name | string | 否 | 自动生成 | 融合策略名称 |
-| description | string | 否 | null | 融合策略描述 |
+
+**注意：**
+- 路径参数 `backtest_id` 为父回测 ID，新生成的子回测会自动关联此父回测
+- 后端 schema 中虽包含 `description` 字段，但实际未持久化，建议仅传 `name`
+- `strategy_ids` 是策略 ID 而非回测 ID，至少需要 2 个
 
 **处理流程：**
 1. 验证所有策略存在且属于当前用户
@@ -873,6 +882,18 @@ DELETE /api/v1/ai/prompt-templates/{template_id}
   }
 }
 ```
+
+### 11.6 未实现的接口
+
+> 以下接口在 07 号前端需求文档中规划,但当前后端尚未实现。前端代码已暂时禁用相关 UI,待后端实现后启用。
+
+| 接口 | 方法 | 路径 | 说明 |
+|---|---|---|---|
+| 设为默认模板 | POST | `/api/v1/ai/prompt-templates/{template_id}/set-default` | 返回 404,后端未注册路由 |
+| 多策略批量回测 | POST | `/api/v1/strategies/ai-backtest/multi` | 返回 405,后端未实现 |
+| Prompt 模板分类 `merge_optimize` | - | - | 后端正则限制为 3 类,不支持 |
+
+**注意：** Prompt 模板创建接口当前存在已知 Bug,FastAPI 将 `data: "PromptTemplateCreate"` 字符串注解识别为 query 参数而非请求体,导致返回 422。需将 `PromptTemplateCreate` 的 import 移至模块顶部,或使用 `from __future__ import annotations`。
 
 ---
 

@@ -9,22 +9,16 @@ import type {
   AIBacktestOptimizeResult,
   MergeOptimizeRequest,
   MergeOptimizeResult,
-  MultiBacktestCreateResult,
   PromptTemplate,
+  PromptTemplateListResponse,
+  PromptTemplateCreateRequest,
+  PromptTemplateUpdateRequest,
 } from '@/types';
 
 export const aiBacktestApi = {
   /** 创建并启动 AI 回测 */
   create: (data: AIBacktestCreateRequest) =>
     request.post<AIBacktestCreateResponse>('/strategies/ai-backtest', data),
-
-  /** 创建多策略回测 */
-  createMulti: (data: AIBacktestCreateRequest & { strategy_ids: string[] }) =>
-    request.post<MultiBacktestCreateResult>('/strategies/ai-backtest/multi', data),
-
-  /** 多策略融合优化 */
-  mergeOptimize: (data: MergeOptimizeRequest) =>
-    request.post<MergeOptimizeResult>('/strategies/ai-backtest/merge-optimize', data),
 
   /** 获取回测详情 */
   getDetail: (id: string) =>
@@ -68,32 +62,51 @@ export const aiBacktestApi = {
   optimize: (id: string) =>
     request.post<AIBacktestOptimizeResult>(`/strategies/ai-backtest/${id}/optimize`),
 
+  /**
+   * 多策略融合优化
+   * 路径: POST /strategies/ai-backtest/{backtest_id}/merge-optimize
+   * 请求体: strategy_ids / symbol / timeframe / name / description
+   */
+  mergeOptimize: (backtestId: string, data: Omit<MergeOptimizeRequest, 'backtest_id'>) =>
+    request.post<MergeOptimizeResult>(
+      `/strategies/ai-backtest/${backtestId}/merge-optimize`,
+      data,
+    ),
+
   /** 获取 SSE 进度 URL */
   getProgressUrl: (id: string) =>
     `/api/v1/strategies/ai-backtest/${id}/progress`,
 };
 
-// Prompt 模板 API
+/**
+ * Prompt 模板 API
+ *
+ * 注意:
+ * - 路径前缀为 /ai/prompt-templates (挂在 ai 路由下)
+ * - 后端仅支持 3 类: initial_analysis / backtest_precheck / deep_analysis
+ * - 更新使用 PATCH 方法,非 PUT
+ * - 当前后端未实现 set-default 接口
+ */
 export const promptTemplateApi = {
   /** 获取模板列表 */
-  list: (category?: string) =>
-    request.get<PromptTemplate[]>('/prompt-templates', { params: { category } }),
+  list: (params?: { category?: string; active_only?: boolean }) =>
+    request.get<PromptTemplateListResponse>('/ai/prompt-templates', { params }),
+
+  /** 获取模板详情 */
+  get: (id: string) =>
+    request.get<PromptTemplate>(`/ai/prompt-templates/${id}`),
 
   /** 创建模板 */
-  create: (data: Pick<PromptTemplate, 'name' | 'category' | 'content' | 'description' | 'variables'>) =>
-    request.post<PromptTemplate>('/prompt-templates', data),
+  create: (data: PromptTemplateCreateRequest) =>
+    request.post<PromptTemplate>('/ai/prompt-templates', data),
 
-  /** 更新模板 */
-  update: (id: string, data: Partial<Pick<PromptTemplate, 'name' | 'content' | 'description' | 'variables'>>) =>
-    request.put<PromptTemplate>(`/prompt-templates/${id}`, data),
+  /** 更新模板（PATCH,版本号自动 +1） */
+  update: (id: string, data: PromptTemplateUpdateRequest) =>
+    request.patch<PromptTemplate>(`/ai/prompt-templates/${id}`, data),
 
   /** 删除模板 */
   remove: (id: string) =>
-    request.delete<boolean>(`/prompt-templates/${id}`),
-
-  /** 设为默认 */
-  setDefault: (id: string) =>
-    request.post<PromptTemplate>(`/prompt-templates/${id}/set-default`),
+    request.delete<{ status: string }>(`/ai/prompt-templates/${id}`),
 };
 
 export default aiBacktestApi;
