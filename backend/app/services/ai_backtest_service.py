@@ -501,6 +501,168 @@ class AIBacktestService:
         """计算下一个优化版本号（暂返回 1）。"""
         return 1
 
+    # ========== 08-AI回测K线分析优化：多策略融合优化 ==========
+
+    async def merge_optimize(
+        self, user_id: uuid.UUID, data: MergeOptimizeRequest
+    ) -> AIBacktestResponse:
+        """多策略融合优化：基于多个策略的回测结果融合生成新策略。
+
+        1. 验证所有策略存在且属于当前用户
+        2. 读取父回测结果
+        3. 调用 LLM 分析各策略表现，生成融合后的新策略规则
+        4. 创建新策略 + 新的子回测（关联 parent_backtest_id）
+        5. 返回子回测详情
+        """
+        # 1. 验证所有策略存在且属于当前用户
+        strategies = []
+        for sid in data.strategy_ids:
+            result = await self.db.execute(
+                select(Strategy).where(
+                    Strategy.id == sid,
+                    Strategy.user_id == user_id,
+                )
+            )
+            strategy = result.scalar_one_or_none()
+            if not strategy:
+                raise NotFoundException(
+                    message=f"策略不存在: {sid}"
+                )
+            strategies.append(strategy)
+
+        # 2. 验证父回测存在且属于当前用户
+        parent_backtest = await self._verify_ownership(
+            data.backtest_id, user_id
+        )
+        if parent_backtest.status != "completed":
+            from app.core.exceptions import BadRequestException
+            raise BadRequestException(
+                message="父回测必须已完成才能进行融合优化"
+            )
+
+        # 3. 调用 LLM 分析各策略表现
+        from app.services.provider_factory import ProviderFactory
+
+        provider = await ProviderFactory.get_active_provider(self.db)
+
+        # 构建分析 Prompt
+        strategies_info = []
+        for s in strategies:
+            strategies_info.append(
+                f"策略: {s.name} ({s.category})\n"
+                f"规则: {json.dumps(s.rules, ensure_ascii=False, indent=2)}\n"
+            )
+
+        # 读取父回测的总结
+        summary = parent_backtest.result_summary or {}
+
+        merge_prompt = (
+            f"你是一个量化交易策略优化专家。请根据以下多个策略的规则和回测结果，"
+            f"融合生成一个最优的新策略。\n\n"
+            f"## 参与融合的策略\n{chr(10).join(strategies_info)}\n\n"
+            f"## 基础回测结果\n{json.dumps(summary, ensure_ascii=False, indent=2)}\n\n"
+            f"请输出 JSON 格式的新策略规则：\n"
+            f"{{\n"
+            f'  "name": "融合策略名称",\n'
+            f'  "description": "策略描述",\n'
+            f'  "category": "策略类别",\n'
+            f'  "rules": {{\n'
+            f'    "entry_rules": [...],\n'
+            f'    "exit_rules": [...],\n'
+            f'    "position_sizing": "仓位管理规则",\n'
+            f'    "risk_management": "风险控制规则"\n'
+            f'  }}\n'
+            f"}}\n\n"
+            f"注意：只输出 JSON，不要输出其他文字。"
+        )
+
+        try:
+            llm_result = await provider.chat(
+                [{"role": "user", "content": merge_prompt}],
+                temperature=0.3,
+                max_tokens=2000,
+            )
+            merged_rules = self._parse_merge_result(llm_result)
+        except Exception as e:
+            logger.warning(f"LLM merge optimization failed: {e}")
+            # 失败时简单合并规则
+            merged_rules = self._fallback_merge(strategies)
+
+        # 4. 创建新策略
+        merged_name = data.name or f"融合策略-{data.strategy_ids[0][:8]}"
+        new_strategy = Strategy(
+            user_id=user_id,
+            name=merged_name,
+            category=merged_rules.get("category", "custom"),
+            description=merged_rules.get("description", "AI 融合优化策略"),
+            rules=merged_rules.get("rules", {}),
+            status="active",
+            extra={
+                "source": "merge_optimize",
+                "source_strategies": [str(s.id) for s in strategies],
+                "source_backtest_id": str(data.backtest_id),
+            },
+        )
+        self.db.add(new_strategy)
+        await self.db.flush()
+
+        # 5. 创建子回测
+        child_backtest = AIBacktest(
+            strategy_id=new_strategy.id,
+            user_id=user_id,
+            symbol=data.symbol,
+            timeframe=data.timeframe,
+            start_time=parent_backtest.start_time,
+            mode="kline_count",
+            kline_count=parent_backtest.total_klines,
+            initial_capital=parent_backtest.initial_capital,
+            fee_rate=parent_backtest.fee_rate,
+            use_ai=True,
+            total_klines=parent_backtest.total_klines,
+            status="pending",
+            # 关联父回测
+            parent_backtest_id=data.backtest_id,
+            strategy_ids=[str(s.id) for s in strategies],
+        )
+        self.db.add(child_backtest)
+        await self.db.flush()
+        await self.db.commit()
+
+        # 6. 触发子回测任务
+        from app.tasks.ai_backtest_tasks import run_ai_backtest
+
+        run_ai_backtest.delay(str(child_backtest.id))
+
+        return await self._build_response(child_backtest)
+
+    def _parse_merge_result(self, raw: str) -> dict:
+        """解析 LLM 融合结果。"""
+        try:
+            start = raw.find("{")
+            end = raw.rfind("}")
+            if start >= 0 and end > start:
+                return json.loads(raw[start:end + 1])
+            return {"name": "融合策略", "rules": {}}
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Failed to parse merge result: {e}")
+            return {"name": "融合策略", "rules": {}}
+
+    def _fallback_merge(self, strategies: list) -> dict:
+        """兜底：简单合并多个策略规则。"""
+        merged_rules = {"entry_rules": [], "exit_rules": []}
+        for s in strategies:
+            rules = s.rules or {}
+            if "entry_rules" in rules:
+                merged_rules["entry_rules"].extend(rules["entry_rules"])
+            if "exit_rules" in rules:
+                merged_rules["exit_rules"].extend(rules["exit_rules"])
+        return {
+            "name": "融合策略（兜底）",
+            "category": "custom",
+            "description": "AI 融合策略（LLM 失败，兜底合并）",
+            "rules": merged_rules,
+        }
+
     async def _verify_ownership(
         self, backtest_id: uuid.UUID, user_id: uuid.UUID
     ) -> AIBacktest:

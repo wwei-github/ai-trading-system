@@ -253,3 +253,24 @@ async def optimize_strategy(
     service = AIBacktestService(db)
     result = await service.optimize_strategy(backtest_id, current_user.id)
     return ApiResponse(data=result)
+
+
+@router.post("/{backtest_id}/merge-optimize", summary="多策略融合优化")
+async def merge_optimize(
+    backtest_id: uuid.UUID,
+    data: MergeOptimizeRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """多策略融合优化：基于多个策略的回测结果生成融合后的新策略。
+
+    1. 验证所有策略存在且属于当前用户
+    2. 验证父回测已完成
+    3. 调用 LLM 分析各策略表现，生成融合规则
+    4. 创建新策略 + 子回测并启动
+    """
+    # 确保请求中的 backtest_id 与路径参数一致
+    data.backtest_id = backtest_id
+    service = AIBacktestService(db)
+    result = await service.merge_optimize(current_user.id, data)
+    return ApiResponse(data=result)

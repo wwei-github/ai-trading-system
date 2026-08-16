@@ -343,3 +343,81 @@ async def get_report(
             detail={"report_id": str(report_id)},
         )
     return ApiResponse(data=AIReportResponse.model_validate(report))
+
+
+# ---------- Prompt 模板管理 ----------
+
+
+@router.get("/prompt-templates", summary="获取 Prompt 模板列表")
+async def list_prompt_templates(
+    category: Optional[str] = Query(
+        None, description="按分类过滤：initial_analysis/backtest_precheck/deep_analysis"
+    ),
+    active_only: bool = Query(False, description="仅返回启用的模板"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取 Prompt 模板列表。"""
+    from app.services.prompt_template_service import PromptTemplateService
+
+    service = PromptTemplateService(db)
+    items, total = await service.list_templates(
+        category=category, active_only=active_only
+    )
+    return ApiResponse(data={"items": items, "total": total})
+
+
+@router.get("/prompt-templates/{template_id}", summary="获取 Prompt 模板详情")
+async def get_prompt_template(
+    template_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取 Prompt 模板详情。"""
+    from app.services.prompt_template_service import PromptTemplateService
+
+    service = PromptTemplateService(db)
+    return ApiResponse(data=await service.get_template(template_id))
+
+
+@router.post("/prompt-templates", summary="创建 Prompt 模板", status_code=201)
+async def create_prompt_template(
+    data: "PromptTemplateCreate",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """创建 Prompt 模板。"""
+    from app.services.prompt_template_service import PromptTemplateService
+    from app.schemas.prompt_template import PromptTemplateCreate
+
+    service = PromptTemplateService(db)
+    return ApiResponse(data=await service.create_template(data))
+
+
+@router.patch("/prompt-templates/{template_id}", summary="更新 Prompt 模板")
+async def update_prompt_template(
+    template_id: uuid.UUID,
+    data: "PromptTemplateUpdate",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """更新 Prompt 模板（版本号自动 +1）。"""
+    from app.services.prompt_template_service import PromptTemplateService
+    from app.schemas.prompt_template import PromptTemplateUpdate
+
+    service = PromptTemplateService(db)
+    return ApiResponse(data=await service.update_template(template_id, data))
+
+
+@router.delete("/prompt-templates/{template_id}", summary="删除 Prompt 模板")
+async def delete_prompt_template(
+    template_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除 Prompt 模板。"""
+    from app.services.prompt_template_service import PromptTemplateService
+
+    service = PromptTemplateService(db)
+    await service.delete_template(template_id)
+    return ApiResponse(data={"status": "deleted"})

@@ -16,7 +16,7 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.security import decrypt_api_key, encrypt_api_key
+from app.core.security import decrypt_api_key
 from app.models.audit import AuditLog
 from app.services.llm_provider import (
     LLMProvider,
@@ -94,12 +94,19 @@ class ProviderFactory:
         config = provider_config.get("config", {})
 
         if ptype == "openai_compatible":
-            # 解密 API Key
+            # 08-AI回测K线分析优化：API Key 从环境变量读取
             decrypted_config = dict(config)
-            api_key_encrypted = config.get("api_key", "")
-            if api_key_encrypted and api_key_encrypted != "****":
+            api_key = config.get("api_key", "")
+            api_key_from_env = config.get("api_key_from_env", "")
+
+            if api_key_from_env:
+                # 从环境变量读取
+                decrypted_config["api_key"] = getattr(settings, api_key_from_env, "")
+            elif api_key and api_key != "****":
+                # 向后兼容：尝试解密 DB 中存储的加密 key
                 try:
-                    decrypted_config["api_key"] = decrypt_api_key(api_key_encrypted)
+                    from app.core.security import decrypt_api_key
+                    decrypted_config["api_key"] = decrypt_api_key(api_key)
                 except Exception:
                     logger.warning("API Key 解密失败，使用原始值")
             return OpenAICompatibleProvider(decrypted_config)
@@ -130,17 +137,21 @@ class ProviderFactory:
         provider_data: dict,
         user_id: Optional[uuid.UUID] = None,
     ) -> dict:
-        """添加 Provider（加密 API Key）。"""
+        """添加 Provider（API Key 引用环境变量，不持久化到 DB）。"""
         provider_id = f"provider-{uuid.uuid4().hex[:12]}"
         provider_data["id"] = provider_id
         provider_data["enabled"] = True
         provider_data["created_at"] = datetime.now(timezone.utc).isoformat()
         provider_data["updated_at"] = provider_data["created_at"]
 
-        # 加密 API Key
+        # 08-AI回测K线分析优化：API Key 迁移到环境变量
+        # 不再将 API Key 加密存储到 DB，而是存储环境变量引用
         config = provider_data.get("config", {})
         if "api_key" in config and config["api_key"]:
-            config["api_key"] = encrypt_api_key(config["api_key"])
+            # 保存 api_key 到环境变量引用
+            config["api_key_from_env"] = "LLM_API_KEY"
+            # 删除原始 api_key 值（不持久化到 DB）
+            del config["api_key"]
 
         data = await ProviderFactory.load_providers(db)
         data["providers"].append(provider_data)
@@ -279,7 +290,8 @@ class ProviderFactory:
                 "name": f"默认 ({settings.LLM_MODEL})",
                 "enabled": True,
                 "config": {
-                    "api_key": encrypt_api_key(settings.LLM_API_KEY),
+                    # 08-AI回测K线分析优化：API Key 从环境变量读取
+                    "api_key_from_env": "LLM_API_KEY",
                     "base_url": settings.LLM_BASE_URL,
                     "model": settings.LLM_MODEL,
                     "temperature": settings.LLM_TEMPERATURE,

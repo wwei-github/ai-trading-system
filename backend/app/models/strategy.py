@@ -1,7 +1,7 @@
 """策略模型。"""
 
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import Boolean, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -51,4 +51,9 @@ class Strategy(Base):
     # 是否为内置模板策略
     is_template: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
+    )
+
+    # 额外属性（用于辅助信息，如融合优化来源）
+    extra: Mapped[Optional[Any]] = mapped_column(
+        JSONB, nullable=True, default=dict, comment="额外属性"
     )
