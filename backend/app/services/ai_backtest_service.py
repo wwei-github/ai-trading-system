@@ -48,8 +48,27 @@ class AIBacktestService:
         # 2. 并发控制：同一用户最多 3 个正在运行的回测
         await self._check_concurrency_limit(user_id)
 
-        # 3. 验证策略存在且有效
-        strategy = await self._validate_strategy(data.strategy_id, user_id)
+        # 3. 验证策略存在且有效（支持单策略或多策略）
+        if data.strategy_ids and len(data.strategy_ids) >= 2:
+            # 多策略回测模式
+            if len(data.strategy_ids) > 5:
+                raise BadRequestException(message="多策略回测最多选择 5 个策略")
+            strategies = []
+            for sid in data.strategy_ids:
+                s = await self._validate_strategy(sid, user_id)
+                strategies.append(s)
+            # 多策略时使用第一个策略 ID 作为主策略
+            primary_strategy = strategies[0]
+            # 转为字符串列表，JSONB 列不支持 UUID 序列化
+            all_strategy_ids = [str(sid) for sid in data.strategy_ids]
+        elif data.strategy_id:
+            # 单策略回测模式
+            primary_strategy = await self._validate_strategy(data.strategy_id, user_id)
+            all_strategy_ids = None
+        else:
+            raise BadRequestException(
+                message="请选择策略：单策略回测提供 strategy_id，多策略回测提供 strategy_ids（至少 2 个）"
+            )
 
         # 4. 计算总 K 线数
         total_klines = await self._calculate_total_klines(
@@ -62,7 +81,7 @@ class AIBacktestService:
 
         # 5. 创建回测记录
         backtest = AIBacktest(
-            strategy_id=data.strategy_id,
+            strategy_id=primary_strategy.id,
             user_id=user_id,
             symbol=data.symbol,
             timeframe=data.timeframe,
@@ -79,7 +98,7 @@ class AIBacktestService:
             # 08-AI回测K线分析优化 新增字段
             use_local_model=data.use_local_model,
             local_model_klines=data.local_model_klines,
-            strategy_ids=data.strategy_ids,
+            strategy_ids=all_strategy_ids,
         )
         self.db.add(backtest)
         await self.db.flush()
@@ -259,10 +278,21 @@ class AIBacktestService:
         """删除回测记录（含交易明细、分析日志），并清理 Redis 缓存。
 
         支持删除任何终态（completed / cancelled / failed）的回测。
+
+        注意：会先断开子回测的 parent_backtest_id 引用，避免外键约束冲突。
         """
         backtest = await self._verify_ownership(backtest_id, user_id)
         if backtest.status in ("running", "pending", "cancelling"):
             raise BadRequestException(message="只能删除已完成的回测")
+
+        # 先断开子回测的 parent_backtest_id 引用，避免自引用外键约束冲突
+        from sqlalchemy import update
+        stmt = (
+            update(AIBacktest)
+            .where(AIBacktest.parent_backtest_id == backtest_id)
+            .values(parent_backtest_id=None)
+        )
+        await self.db.execute(stmt)
 
         # 清理 Redis 缓存
         try:
@@ -615,7 +645,7 @@ class AIBacktestService:
             merged_rules = self._fallback_merge(strategies)
 
         # 4. 创建新策略
-        merged_name = data.name or f"融合策略-{data.strategy_ids[0][:8]}"
+        merged_name = data.name or f"融合策略-{str(data.strategy_ids[0])[:8]}"
         new_strategy = Strategy(
             user_id=user_id,
             name=merged_name,

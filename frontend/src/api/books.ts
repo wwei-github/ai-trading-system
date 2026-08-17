@@ -79,9 +79,10 @@ export const bookApi = {
 
   async analyze(
     bookId: string,
-    data: { save_strategy: boolean; strategy_name?: string },
+    data: { save_strategy: boolean; strategy_name?: string; strategy_ids?: string[] },
   ): Promise<BookAnalyzeResult> {
-    const res = await request.post<BookAnalyzeResult>(`/books/${bookId}/analyze`, data);
+    // AI 分析耗时较长（LLM 调用 30-60 秒），设置 120 秒超时
+    const res = await request.post<BookAnalyzeResult>(`/books/${bookId}/analyze`, data, { timeout: 120000 });
     return res.data;
   },
 

@@ -10,7 +10,9 @@ from pydantic import BaseModel, Field
 class AIBacktestCreate(BaseModel):
     """创建 AI 回测请求。"""
 
-    strategy_id: UUID
+    strategy_id: Optional[UUID] = Field(
+        default=None, description="单策略回测时的策略 ID"
+    )
     symbol: str = Field(default="BTC/USDT", max_length=20)
     timeframe: str = Field(default="15m", pattern=r"^(15m|1h|4h|1d)$")
     start_time: datetime
@@ -30,7 +32,7 @@ class AIBacktestCreate(BaseModel):
         default=10, ge=1, le=100, description="本地模型预筛时分析的 K 线数量"
     )
     strategy_ids: Optional[List[UUID]] = Field(
-        default=None, description="多策略融合时，参与优化的策略 ID 列表"
+        default=None, description="多策略回测时，参与回测的策略 ID 列表（2-5 个）"
     )
 
 
@@ -38,7 +40,7 @@ class AIBacktestResponse(BaseModel):
     """AI 回测响应。"""
 
     id: UUID
-    strategy_id: UUID
+    strategy_id: Optional[UUID] = None
     strategy_name: str = ""
     symbol: str
     timeframe: str

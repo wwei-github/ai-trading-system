@@ -269,11 +269,16 @@ class BookService:
         upload_dir = os.path.join(
             settings.UPLOAD_DIR, "books", str(user_id)
         )
+        # 确保使用绝对路径，避免 Celery Worker 工作目录不同导致找不到文件
+        if not os.path.isabs(upload_dir):
+            upload_dir = os.path.abspath(upload_dir)
         os.makedirs(upload_dir, exist_ok=True)
 
         # 生成唯一文件名
         saved_filename = f"{uuid.uuid4().hex}.{ext}"
         file_path = os.path.join(upload_dir, saved_filename)
+        # 保存绝对路径到数据库，确保 Celery 能找到文件
+        file_path = os.path.abspath(file_path)
 
         # 写入文件
         with open(file_path, "wb") as f:
@@ -467,10 +472,6 @@ class BookService:
         )
         result = await self.db.execute(stmt)
         chapters = list(result.scalars().all())
-        # 不包含正文时清空 content 字段以减少响应体积
-        if not include_content:
-            for ch in chapters:
-                ch.content = ""  # type: ignore[assignment]
         return chapters
 
     async def get_chapter(
@@ -509,10 +510,6 @@ class BookService:
         )
         result = await self.db.execute(stmt)
         chapters = list(result.scalars().all())
-
-        if not include_content:
-            for ch in chapters:
-                ch.content = ""  # type: ignore[assignment]
         return chapters, total
 
     async def get_book_strategies(
@@ -1038,6 +1035,32 @@ class BookService:
             c.chapter_order for c, _ in scored_chunks if c.chapter_order
         })
 
+        # 可选：加载参考策略，将已有策略规则加入 Prompt
+        reference_strategies_text = ""
+        if data.strategy_ids:
+            strategies_result = await self.db.execute(
+                select(Strategy).where(
+                    Strategy.id.in_(data.strategy_ids),
+                    Strategy.user_id == user_id,
+                )
+            )
+            ref_strategies = strategies_result.scalars().all()
+            if ref_strategies:
+                parts = []
+                for s in ref_strategies:
+                    rules_str = json.dumps(s.rules, ensure_ascii=False, indent=2)[:2000]
+                    parts.append(
+                        f"策略名称：{s.name}\n"
+                        f"策略类别：{s.category}\n"
+                        f"策略描述：{s.description or ''}\n"
+                        f"策略规则：\n{rules_str}\n"
+                    )
+                reference_strategies_text = (
+                    "以下是你参考的已有策略规则，请综合这些策略的核心理念进行深入分析：\n\n"
+                    + "\n---\n".join(parts)
+                    + "\n\n"
+                )
+
         # 第一步：生成书籍整体分析 + 提取核心概念
         analyze_messages = [
             {
@@ -1056,6 +1079,7 @@ class BookService:
                     '  "book_analysis": "完整的分析报告（Markdown格式）",\n'
                     '  "core_concepts": ["核心概念1", "核心概念2", ...]\n'
                     "}\n\n"
+                    f"{reference_strategies_text}"
                     f"书籍内容片段：\n{context_text[:12000]}"
                 ),
             },
@@ -1138,6 +1162,7 @@ class BookService:
                     "规则条件中 value 可以保留文本描述，系统会支持自定义规则。\n\n"
                     f"书籍分析：{book_analysis}\n\n"
                     f"核心概念：{', '.join(core_concepts)}\n\n"
+                    f"{reference_strategies_text}"
                     f"原文片段供参考：{context_text[:6000]}"
                 ),
             },

@@ -54,7 +54,8 @@ start() {
     # 注意：不使用 --pidfile 参数，由脚本自己管理 PID 文件
     nohup "$VENV_DIR/bin/celery" -A app.tasks worker \
         --loglevel=info \
-        --concurrency=2 \
+        --concurrency=1 \
+        --pool=solo \
         --queues=default,celery \
         > "$CELERY_LOG" 2>&1 &
     CELERY_PID=$!

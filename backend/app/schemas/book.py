@@ -220,6 +220,9 @@ class BookAnalyzeRequest(BaseModel):
     focus_areas: Optional[List[str]] = Field(
         None, description="重点关注领域，如：['趋势跟踪', '风险管理', '仓位管理']"
     )
+    strategy_ids: Optional[List[uuid.UUID]] = Field(
+        None, description="参考的已有策略 ID 列表，AI 分析时综合参考这些策略的规则"
+    )
 
 
 class BookAnalyzeResponse(BaseModel):

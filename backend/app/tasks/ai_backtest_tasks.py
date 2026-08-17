@@ -50,6 +50,8 @@ class AIBacktestContext:
 
         # 策略规则
         self.strategy_rules = config.get("strategy_rules", {})
+        # 多策略规则（用于多策略回测时参考多个策略）
+        self.multi_strategy_rules: List[dict] = config.get("multi_strategy_rules", [])
 
         # 全部 K 线数据（预热 + 回测区间）
         self.all_klines: List[Dict] = []
@@ -337,6 +339,22 @@ async def _run_backtest_async(backtest_id: str):
             await session.commit()
 
             # 构建上下文（含新增字段）
+            strategy_rules = backtest.strategy.rules if backtest.strategy else {}
+            multi_strategy_rules = []
+            if backtest.strategy_ids:
+                from app.models.strategy import Strategy
+                strategies_result = await session.execute(
+                    select(Strategy).where(Strategy.id.in_(backtest.strategy_ids))
+                )
+                multi_strategies = strategies_result.scalars().all()
+                for s in multi_strategies:
+                    multi_strategy_rules.append({
+                        "id": str(s.id),
+                        "name": s.name,
+                        "category": s.category,
+                        "rules": s.rules,
+                    })
+
             config = {
                 "strategy_id": str(backtest.strategy_id),
                 "symbol": backtest.symbol,
@@ -346,7 +364,8 @@ async def _run_backtest_async(backtest_id: str):
                 "initial_capital": float(backtest.initial_capital),
                 "fee_rate": float(backtest.fee_rate),
                 "use_ai": backtest.use_ai,
-                "strategy_rules": backtest.strategy.rules if backtest.strategy else {},
+                "strategy_rules": strategy_rules,
+                "multi_strategy_rules": multi_strategy_rules,
                 # 08-AI回测K线分析优化 新增配置
                 "use_local_model": backtest.use_local_model,
                 "local_model_klines": backtest.local_model_klines,
@@ -452,6 +471,10 @@ async def _run_backtest_async(backtest_id: str):
                         # 命中关键位 → 跳过预筛，直接进入深度分析
                         should_analyze = True
                         ctx.last_trigger_reason = f"key_level_hit:{key_level_hit['type']}"
+                        ctx.precheck_total += 1
+                        ctx.precheck_triggered += 1
+                        # 记录预筛通过日志（关键位命中相当于预筛通过）
+                        _append_precheck_log(ctx, idx + 1, f"命中关键位[{key_level_hit['type']}]，跳过预筛直接进入深度分析")
                         logger.debug(f"Key level hit at kline {idx+1}: {key_level_hit}")
                     else:
                         # 未命中关键位 → 走两级预筛

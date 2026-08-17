@@ -29,8 +29,29 @@ EMBED_BATCH_SIZE = 16  # embedding 接口单次批量大小
 
 # ---------- PDF 文本 + 章节提取 ----------
 
+# OCR 阈值：当平均每页文本少于该值时视为扫描版 PDF，启用 OCR
+OCR_TEXT_THRESHOLD = 50  # 每页平均字符数
+
+
+def _ocr_page(page: Any, dpi: int = 200) -> str:
+    """对 PDF 页面执行 OCR 识别。
+
+    使用 Tesseract 识别中文（chi_sim）和英文（eng）混合文本。
+    """
+    import pytesseract
+    from PIL import Image
+    import io
+
+    pix = page.get_pixmap(dpi=dpi)
+    img = Image.open(io.BytesIO(pix.tobytes("png")))
+    text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+    return text.strip()
+
+
 def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
     """使用 PyMuPDF (fitz) 提取 PDF 文本和目录。
+
+    自动检测扫描版 PDF 并降级到 OCR 识别。
 
     Returns:
         (full_text, chapters) — chapters 每项包含 title / page_start / page_end / content / level
@@ -53,6 +74,34 @@ def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
             text = ""
         page_texts.append(text)
 
+    # 检测是否为扫描版 PDF（文本提取很少或为空）
+    total_chars = sum(len(t) for t in page_texts)
+    avg_chars_per_page = total_chars / max(total_pages, 1)
+    is_scanned = avg_chars_per_page < OCR_TEXT_THRESHOLD
+
+    if is_scanned:
+        logger.info(
+            "检测为扫描版 PDF（{} 页，平均每页 {} 字符），启用 OCR 识别...",
+            total_pages,
+            round(avg_chars_per_page, 1),
+        )
+        ocr_texts: List[str] = []
+        for i in range(total_pages):
+            try:
+                text = _ocr_page(doc[i])
+            except Exception as e:
+                logger.warning("OCR 第 {} 页识别失败: {}", i + 1, e)
+                text = ""
+            ocr_texts.append(text)
+            if (i + 1) % 20 == 0 or i == total_pages - 1:
+                logger.info(
+                    "OCR 进度: {}/{} 页 ({:.0f}%)",
+                    i + 1,
+                    total_pages,
+                    (i + 1) / total_pages * 100,
+                )
+        page_texts = ocr_texts
+
     doc.close()
 
     full_text = "\n\n".join(page_texts)
@@ -60,10 +109,20 @@ def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
     # 构建章节
     chapters: List[Dict[str, Any]] = []
     if toc:
-        for idx, (level, title, page_num) in enumerate(toc):
+        # 合并相同页面的连续条目（父标题和子标题同页时，保留父标题）
+        merged_toc = []
+        for entry in toc:
+            if merged_toc and entry[2] == merged_toc[-1][2]:
+                # 同页条目：保留前一个（父标题），跳过当前（子标题）
+                continue
+            merged_toc.append(entry)
+
+        for idx, (level, title, page_num) in enumerate(merged_toc):
             page_start = page_num - 1  # fitz 页码从 1 开始
-            page_end = (toc[idx + 1][2] - 1) if idx + 1 < len(toc) else total_pages
+            page_end = (merged_toc[idx + 1][2] - 1) if idx + 1 < len(merged_toc) else total_pages
             page_end = min(page_end, total_pages)
+            if page_start >= page_end:
+                continue
             content = "\n\n".join(page_texts[page_start:page_end])
             chapters.append({
                 "title": title.strip(),
@@ -97,7 +156,7 @@ def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
 
 
 def _extract_pdf_with_pypdf2(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
-    """降级方案：使用 PyPDF2 提取 PDF 文本（无目录）。"""
+    """降级方案：使用 PyPDF2 提取 PDF 文本（无目录），支持扫描版 OCR 降级。"""
     from PyPDF2 import PdfReader
 
     reader = PdfReader(file_path)
@@ -110,6 +169,37 @@ def _extract_pdf_with_pypdf2(file_path: str) -> Tuple[str, List[Dict[str, Any]]]
             logger.warning("PDF 第 {} 页提取失败: {}", i + 1, e)
             text = ""
         page_texts.append(text)
+
+    # 检测是否为扫描版 PDF
+    total_chars = sum(len(t) for t in page_texts)
+    avg_chars_per_page = total_chars / max(total_pages, 1)
+    is_scanned = avg_chars_per_page < OCR_TEXT_THRESHOLD
+
+    if is_scanned:
+        logger.info(
+            "检测为扫描版 PDF（PyPDF2，{} 页），启用 OCR 识别...",
+            total_pages,
+        )
+        from pdf2image import convert_from_path
+        import pytesseract
+
+        images = convert_from_path(file_path, dpi=200)
+        ocr_texts: List[str] = []
+        for i, img in enumerate(images):
+            try:
+                text = pytesseract.image_to_string(img, lang="chi_sim+eng")
+            except Exception as e:
+                logger.warning("OCR 第 {} 页识别失败: {}", i + 1, e)
+                text = ""
+            ocr_texts.append(text.strip())
+            if (i + 1) % 20 == 0 or i == total_pages - 1:
+                logger.info(
+                    "OCR 进度: {}/{} 页 ({:.0f}%)",
+                    i + 1,
+                    total_pages,
+                    (i + 1) / total_pages * 100,
+                )
+        page_texts = ocr_texts
 
     full_text = "\n\n".join(page_texts)
 
@@ -147,6 +237,7 @@ def _extract_pdf(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
 
 def _extract_txt(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
     """从 TXT 文件提取文本，按章节标题分章。"""
+    text = ""
     for encoding in ("utf-8", "gbk", "latin-1"):
         try:
             with open(file_path, "r", encoding=encoding) as f:
@@ -319,15 +410,34 @@ async def _generate_embeddings(chunks: List[Dict[str, Any]]) -> None:
 # ---------- 异步解析主流程 ----------
 
 async def _parse_book_async(book_id: str) -> dict:
-    """异步执行书籍解析。"""
-    from sqlalchemy import select, delete
+    """异步执行书籍解析。
 
-    from app.core.database import async_session_maker, redis_client
+    注意：为避免 Celery 事件循环冲突，在函数内部动态创建 engine 和 session maker，
+    确保与当前 asyncio 事件循环一致。
+    """
+    from sqlalchemy import select, delete
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+    from app.core.config import settings
+    from app.core.database import redis_client
     from app.models.book import Book, BookChapter, KnowledgeChunk
     from app.services.book_service import BookService
 
+    # 动态创建 engine（确保与当前事件循环一致）
+    database_url = settings.effective_database_url()
+    engine = create_async_engine(
+        database_url,
+        echo=settings.DEBUG,
+        pool_pre_ping=True,
+        pool_size=1,
+        max_overflow=0,
+    )
+    session_maker = async_sessionmaker(
+        engine, expire_on_commit=False, autoflush=False
+    )
+
     book_uuid = uuid.UUID(book_id)
-    async with async_session_maker() as session:
+    async with session_maker() as session:
         result = await session.execute(select(Book).where(Book.id == book_uuid))
         book = result.scalar_one_or_none()
         if book is None:
@@ -471,6 +581,8 @@ async def _parse_book_async(book_id: str) -> dict:
             book.parse_error_message = str(e)
             await session.commit()
             return {"book_id": book_id, "status": "failed", "reason": str(e)}
+        finally:
+            await engine.dispose()
 
 
 @celery_app.task(name="parse_book", bind=True)

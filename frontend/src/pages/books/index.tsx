@@ -12,7 +12,7 @@ import {
   QuestionCircleOutlined, LoadingOutlined,
 } from '@ant-design/icons';
 import { PageContainer, EmptyState, ConfirmButton, CrudModal } from '@/components/Common';
-import { bookApi } from '@/api';
+import { bookApi, strategyApi } from '@/api';
 import type {
   Book, BookCreateData, ParseStatus, BookQAResponse, BookAnalyzeResult,
 } from '@/types';
@@ -90,6 +90,13 @@ const BooksPage = () => {
   // AI 分析相关状态
   const [analyzeModalOpen, setAnalyzeModalOpen] = useState(false);
   const [analyzeResult, setAnalyzeResult] = useState<BookAnalyzeResult | null>(null);
+  const [analyzeStrategyIds, setAnalyzeStrategyIds] = useState<string[]>([]);
+
+  // 可选：获取所有策略用于 AI 分析时的参考选择
+  const allStrategiesQ = useQuery({
+    queryKey: ['strategies', 'list'],
+    queryFn: () => strategyApi.getList(),
+  });
 
   const booksQ = useQuery({
     queryKey: ['books', 'list', keyword, category, parseStatus],
@@ -158,10 +165,11 @@ const BooksPage = () => {
 
   const parseMutation = useMutation({
     mutationFn: (id: string) => bookApi.parseContent(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       message.success('解析任务已提交');
       queryClient.invalidateQueries({ queryKey: ['books', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['books', 'parse-progress'] });
+      queryClient.invalidateQueries({ queryKey: ['books', 'detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['books', 'parse-progress', id] });
     },
     onError: (err: any) => {
       const msg = err?.message || '';
@@ -175,10 +183,11 @@ const BooksPage = () => {
 
   const reparseMutation = useMutation({
     mutationFn: (id: string) => bookApi.reparseContent(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       message.success('重新解析任务已提交');
       queryClient.invalidateQueries({ queryKey: ['books', 'list'] });
-      queryClient.invalidateQueries({ queryKey: ['books', 'parse-progress'] });
+      queryClient.invalidateQueries({ queryKey: ['books', 'detail', id] });
+      queryClient.invalidateQueries({ queryKey: ['books', 'parse-progress', id] });
     },
     onError: (err: any) => {
       message.error('重新解析启动失败: ' + (err?.message || '未知错误'));
@@ -207,10 +216,11 @@ const BooksPage = () => {
   });
 
   const analyzeMutation = useMutation({
-    mutationFn: (params: { bookId: string; saveStrategy: boolean; strategyName?: string }) =>
+    mutationFn: (params: { bookId: string; saveStrategy: boolean; strategyName?: string; strategyIds?: string[] }) =>
       bookApi.analyze(params.bookId, {
         save_strategy: params.saveStrategy,
         strategy_name: params.strategyName,
+        strategy_ids: params.strategyIds,
       }),
     onSuccess: (result) => {
       setAnalyzeResult(result);
@@ -299,8 +309,17 @@ const BooksPage = () => {
   const handleAnalyze = () => {
     if (!selectedBook) return;
     setAnalyzeResult(null);
+    setAnalyzeStrategyIds([]);
     setAnalyzeModalOpen(true);
-    analyzeMutation.mutate({ bookId: selectedBook.id, saveStrategy: true });
+  };
+
+  const handleStartAnalyze = () => {
+    if (!selectedBook) return;
+    analyzeMutation.mutate({
+      bookId: selectedBook.id,
+      saveStrategy: true,
+      strategyIds: analyzeStrategyIds.length > 0 ? analyzeStrategyIds : undefined,
+    });
   };
 
   const renderCover = (book: Book) => {
@@ -861,17 +880,45 @@ const BooksPage = () => {
 
       {/* AI 分析结果弹窗 */}
       <Modal
-        title="AI 书籍分析结果"
+        title="AI 书籍分析"
         open={analyzeModalOpen}
         onCancel={() => { setAnalyzeModalOpen(false); setAnalyzeResult(null); }}
         width={800}
-        footer={null}
+        footer={!analyzeResult && !analyzeMutation.isPending ? (
+          <Button type="primary" onClick={handleStartAnalyze} icon={<BulbOutlined />} size="large">
+            开始分析
+          </Button>
+        ) : null}
       >
         {!analyzeResult ? (
-          <Space direction="vertical" style={{ width: '100%', textAlign: 'center', padding: 40 }}>
-            <Spin size="large" />
-            <Text>AI 正在分析书籍内容，请稍候...</Text>
-            <Text type="secondary">分析过程包括：书籍解读 → 核心概念提取 → 交易系统生成</Text>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {/* 策略选择器 */}
+            <Card size="small" title="参考策略（可选）" style={{ marginBottom: 16 }}>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                选择已有的策略作为参考，AI 分析时会综合这些策略的核心理念进行深入分析
+              </Text>
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="请选择要参考的策略（可选）"
+                style={{ width: '100%' }}
+                showSearch
+                optionFilterProp="label"
+                value={analyzeStrategyIds}
+                onChange={setAnalyzeStrategyIds}
+                options={(allStrategiesQ.data || []).map(s => ({ label: s.name, value: s.id }))}
+                loading={allStrategiesQ.isLoading}
+                notFoundContent="暂无策略"
+              />
+            </Card>
+
+            {analyzeMutation.isPending && (
+              <Space direction="vertical" style={{ width: '100%', textAlign: 'center', padding: 40 }}>
+                <Spin size="large" />
+                <Text>AI 正在分析书籍内容，请稍候...</Text>
+                <Text type="secondary">分析过程包括：书籍解读 → 核心概念提取 → 交易系统生成</Text>
+              </Space>
+            )}
           </Space>
         ) : (
           <Tabs

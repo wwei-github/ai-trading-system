@@ -243,7 +243,7 @@ async def unhandled_exception_handler(
     logger.exception("未处理异常 | 路径: {} | 错误: {}", request.url.path, exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=_build_error_response("服务内部错误", 500),
+        content=_build_error_response(f"服务内部错误: {str(exc)}", 500),
     )
 
 

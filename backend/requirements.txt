@@ -20,6 +20,9 @@ python-dotenv==1.0.0
 httpx==0.26.0
 PyPDF2==3.0.0
 PyMuPDF>=1.24.0,<2.0
+# OCR 扫描版 PDF 支持
+pytesseract>=0.3.13
+pdf2image>=1.17.0
 # Stage 1 安全基础
 python-jose[cryptography]>=3.3.0,<4.0
 passlib[bcrypt]>=1.7.4,<2.0

@@ -255,7 +255,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
         )
       : undefined;
 
-    const payload = {
+    const payload: any = {
       strategy_id: config.strategyId,
       symbol: config.symbol,
       timeframe: config.timeframe,
@@ -273,10 +273,11 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
       prompt_template_ids: promptTemplateIds,
     };
 
-    // 后端 /multi 接口未实现,多策略回测暂时禁用,统一走单策略
-    if (config.backtestMode === 'multi') {
-      message.warning('多策略回测接口暂未实现,请使用单策略回测。融合优化请在历史记录中手动选择已完成回测进行。');
-      return;
+    // 多策略回测：传递 strategy_ids
+    if (config.backtestMode === 'multi' && config.strategyIds && config.strategyIds.length >= 2) {
+      payload.strategy_ids = config.strategyIds;
+      // 多策略时第一个策略作为主策略
+      payload.strategy_id = config.strategyIds[0];
     }
     createMutation.mutate(payload);
   };

@@ -14,6 +14,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from loguru import logger
 
@@ -133,15 +134,62 @@ class StrategyService:
     async def delete_strategy(
         self, strategy_id: uuid.UUID
     ) -> bool:
-        """删除策略（模板策略不可删）。"""
+        """删除策略（模板策略不可删）。
+
+        同步删除策略关联的所有 AI 回测记录（含交易明细、分析日志）。
+        """
         strategy = await self.get_strategy(strategy_id)
         if strategy is None:
             return False
         if strategy.is_template:
             raise ForbiddenException(message="内置模板策略不可删除")
-        await self.db.delete(strategy)
-        await self.db.flush()
-        return True
+
+        try:
+            # 先删除关联的 AI 回测记录（避免外键约束冲突）
+            from sqlalchemy import delete as sa_delete
+            from app.models.ai_backtest import AIBacktest
+            from app.models.ai_backtest_trade import AIBacktestTrade
+
+            # 先查所有关联回测 ID
+            result = await self.db.execute(
+                select(AIBacktest.id).where(AIBacktest.strategy_id == strategy_id)
+            )
+            bt_ids = [row[0] for row in result.fetchall()]
+
+            if bt_ids:
+                # 1. 删除关联回测的交易明细
+                await self.db.execute(
+                    sa_delete(AIBacktestTrade).where(
+                        AIBacktestTrade.backtest_id.in_(bt_ids)
+                    )
+                )
+                # 2. 删除关联回测记录
+                await self.db.execute(
+                    sa_delete(AIBacktest).where(AIBacktest.strategy_id == strategy_id)
+                )
+
+            # 3. 删除策略
+            await self.db.delete(strategy)
+            await self.db.flush()
+            return True
+        except Exception as e:
+            await self.db.rollback()
+            # 提取更友好的错误信息
+            if isinstance(e, IntegrityError):
+                detail = str(e.orig)
+                if "fk_" in detail.lower() or "foreign key" in detail.lower():
+                    raise BadRequestException(
+                        message="该策略存在关联数据（实盘/模拟盘/信号等），请先删除关联数据再删除策略",
+                        detail={"strategy_id": str(strategy_id)},
+                    )
+                raise BadRequestException(
+                    message="删除策略失败: 存在关联数据引用",
+                    detail={"strategy_id": str(strategy_id)},
+                )
+            raise BadRequestException(
+                message=f"删除策略失败: {str(e)}",
+                detail={"strategy_id": str(strategy_id)},
+            )
 
     async def clone_strategy(
         self, strategy_id: uuid.UUID, user_id: uuid.UUID, new_name: Optional[str] = None
