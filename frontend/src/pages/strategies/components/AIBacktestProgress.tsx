@@ -88,6 +88,7 @@ export const AIBacktestProgress: React.FC<Props> = ({
   // 预筛统计
   const precheckTotal = progress.precheck_total ?? 0;
   const precheckTriggered = progress.precheck_triggered ?? 0;
+  const aiCallCount = progress.ai_call_count ?? 0;
   const triggerRate =
     precheckTotal > 0 ? ((precheckTriggered / precheckTotal) * 100).toFixed(1) : '0.0';
   const estimatedSaved = Math.max(0, precheckTotal - precheckTriggered);
@@ -179,13 +180,14 @@ export const AIBacktestProgress: React.FC<Props> = ({
         <Card size="small" style={{ marginBottom: 16 }}>
           <Space wrap>
             <Tag color="blue">预筛 {precheckTotal} 次</Tag>
-            <Tag color="green">触发 AI {precheckTriggered} 次</Tag>
+            <Tag color="green">预筛通过 {precheckTriggered} 次</Tag>
             <Tag color="purple">触发率 {triggerRate}%</Tag>
+            <Tag color="orange">AI 深度分析 {aiCallCount} 次</Tag>
             <Tag color={precheckModeColor}>{precheckModeLabel}</Tag>
           </Space>
           <div style={{ marginTop: 8 }}>
             <Text type="secondary">
-              AI 调用 {precheckTriggered} 次（预估节省 {estimatedSaved} 次）
+              预筛节省 {estimatedSaved} 次 AI 调用
             </Text>
           </div>
         </Card>

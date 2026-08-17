@@ -211,6 +211,7 @@ export interface AIBacktestProgress {
   // 新增：预筛统计
   precheck_total?: number;
   precheck_triggered?: number;
+  ai_call_count?: number;
   precheck_mode?: string;
   has_position?: boolean;
   ai_analysis_paused?: boolean;

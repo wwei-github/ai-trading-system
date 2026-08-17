@@ -201,6 +201,29 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   const handleSSEDone = useCallback(() => {
     setIsRunning(false);
     setIsStopping(false);
+    // 取最新进度，补上最终数据
+    if (currentBacktestId) {
+      aiBacktestApi.getDetail(currentBacktestId).then((res) => {
+        const detail = res.data;
+        if (detail.status === 'completed') {
+          setProgress({
+            backtest_id: currentBacktestId,
+            stage: 'done',
+            progress: 100,
+            current_kline: detail.completed_klines,
+            total_klines: detail.total_klines,
+            current_trades: detail.trade_count || 0,
+            message: '回测完成',
+            precheck_total: detail.precheck_total || 0,
+            precheck_triggered: detail.precheck_triggered || 0,
+            ai_call_count: detail.ai_call_count || 0,
+            initial_analysis: detail.initial_analysis,
+            has_position: false,
+            key_levels: (detail.initial_analysis as any)?.key_levels || [],
+          } as any);
+        }
+      }).catch(() => {});
+    }
     localStorage.removeItem(LS_BACKTEST_ID);
     // 如果 progress 的 stage 是 pending，不切换到 result 页
     if (progress?.stage === 'pending') {
@@ -280,8 +303,20 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
 
   const handleSelectHistory = (id: string) => {
     setCurrentBacktestId(id);
-    setActiveTab('result');
     setBacktestAnalysis(null);
+    // 查询详情，根据状态跳转到对应标签页
+    aiBacktestApi.getDetail(id).then((res) => {
+      const detail = res.data;
+      if (detail.status === 'running' || detail.status === 'pending') {
+        setIsRunning(true);
+        setActiveTab('progress');
+        localStorage.setItem(LS_BACKTEST_ID, id);
+      } else {
+        setActiveTab('result');
+      }
+    }).catch(() => {
+      setActiveTab('result');
+    });
   };
 
   // 获取当前详情中的 AI 分析结果

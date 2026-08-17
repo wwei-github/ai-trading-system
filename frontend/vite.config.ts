@@ -18,6 +18,14 @@ export default defineConfig(({ mode }) => {
           target: proxyTarget,
           changeOrigin: true,
           secure: false,
+          // SSE (Server-Sent Events) 需要禁用响应缓冲
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes) => {
+              // 禁用代理的响应缓冲，确保 SSE 流式数据实时转发
+              proxyRes.headers['Cache-Control'] = 'no-cache';
+              proxyRes.headers['X-Accel-Buffering'] = 'no';
+            });
+          },
         },
       }
     : undefined;

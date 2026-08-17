@@ -526,37 +526,36 @@ async def _run_backtest_async(backtest_id: str):
                 ctx.ai_analysis_paused = False
                 logger.info(f"Position closed, resuming AI analysis at kline {idx+1}")
 
-            # 更新进度（每 10 根或最后 10 根每根都推）
-            if idx % 10 == 0 or idx >= ctx.total_klines - 10:
-                progress = 5 + int((idx + 1) / ctx.total_klines * 90)
-                current_stage_detail = "suspended"
-                if had_position:
-                    current_stage_detail = "holding"
-                elif ctx.current_position is None:
-                    current_stage_detail = "precheck" if should_analyze else "rule"
-                _publish_progress(
-                    backtest_id, "running", progress,
-                    idx + 1, ctx.total_klines, ctx.total_trades,
-                    current_position=ctx.current_position,
-                    ai_analysis=ai_analysis,
-                    indicators={
-                        "ma5": indicators.get("ma5"),
-                        "ma10": indicators.get("ma10"),
-                        "rsi_14": indicators.get("rsi_14"),
-                        "ema20": indicators.get("ema20"),
-                        "ema50": indicators.get("ema50"),
-                        "volume_ma20": indicators.get("volume_ma20"),
-                    },
-                    message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
-                    # 新增字段
-                    precheck_total=ctx.precheck_total,
-                    precheck_triggered=ctx.precheck_triggered,
-                    ai_call_count=ctx.ai_call_count,
-                    current_stage_detail=current_stage_detail,
-                    key_levels=ctx.key_levels,
-                    initial_analysis=ctx.initial_analysis,
-                    has_position=ctx.current_position is not None,
-                )
+            # 更新进度（每根 K 线都推，确保实时性）
+            progress = 5 + int((idx + 1) / ctx.total_klines * 90)
+            current_stage_detail = "suspended"
+            if had_position:
+                current_stage_detail = "holding"
+            elif ctx.current_position is None:
+                current_stage_detail = "precheck" if should_analyze else "rule"
+            _publish_progress(
+                backtest_id, "running", progress,
+                idx + 1, ctx.total_klines, ctx.total_trades,
+                current_position=ctx.current_position,
+                ai_analysis=ai_analysis,
+                indicators={
+                    "ma5": indicators.get("ma5"),
+                    "ma10": indicators.get("ma10"),
+                    "rsi_14": indicators.get("rsi_14"),
+                    "ema20": indicators.get("ema20"),
+                    "ema50": indicators.get("ema50"),
+                    "volume_ma20": indicators.get("volume_ma20"),
+                },
+                message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
+                # 新增字段
+                precheck_total=ctx.precheck_total,
+                precheck_triggered=ctx.precheck_triggered,
+                ai_call_count=ctx.ai_call_count,
+                current_stage_detail=current_stage_detail,
+                key_levels=ctx.key_levels,
+                initial_analysis=ctx.initial_analysis,
+                has_position=ctx.current_position is not None,
+            )
 
         # 8. 生成总结
         _publish_progress(backtest_id, "summary", 98, ctx.total_klines, ctx.total_klines,
