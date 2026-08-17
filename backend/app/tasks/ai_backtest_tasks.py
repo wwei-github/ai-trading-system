@@ -118,18 +118,108 @@ def _check_key_level_hit(kline: Dict, key_levels: List[Dict]) -> Optional[Dict]:
 
 def _append_analysis_log(ctx: AIBacktestContext, kline_index: int,
                           trigger: str, analysis: Dict) -> None:
-    """追加深度分析日志到上下文。"""
+    """追加深度分析日志到上下文（保存完整分析数据供前端展示）。"""
     if not hasattr(ctx, "_analysis_logs"):
         ctx._analysis_logs = []
+    _ma = analysis.get("market_analysis") or {}
+    _tp = analysis.get("trade_plan") or {}
     log_entry = {
         "kline_index": kline_index,
-        "trigger": trigger,
+        "trigger": ctx.last_trigger_reason or trigger,
+        "trigger_reason": ctx.last_trigger_reason or "",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "trend": (analysis.get("market_analysis") or {}).get("trend"),
-        "decision": analysis.get("decision"),
-        "confidence": (analysis.get("trade_plan") or {}).get("confidence"),
+        "analysis": {
+            "trend": _ma.get("trend"),
+            "key_levels": analysis.get("key_levels", ctx.key_levels),
+            "decision": analysis.get("decision"),
+            "confidence": _tp.get("confidence"),
+            "reasoning": _tp.get("reason") or _ma.get("summary") or "",
+            "summary": _ma.get("summary", ""),
+            "stop_loss": _tp.get("stop_loss"),
+            "take_profit": _tp.get("take_profit"),
+            "stop_loss_method": _tp.get("stop_loss_method", ""),
+            "risk_reward_ratio": _tp.get("risk_reward_ratio"),
+        },
     }
     ctx._analysis_logs.append(log_entry)
+
+
+@celery_app.task(bind=True, max_retries=0, acks_late=True)
+def cleanup_stale_pending_backtests(self):
+    """定时清理队列中超过 30 分钟未消费的 pending 回测任务。
+
+    由 Celery Beat 每 5 分钟触发一次。
+    """
+    logger.info("Checking stale pending backtests...")
+    try:
+        asyncio.run(_cleanup_stale_pending())
+    except Exception as e:
+        logger.exception(f"Cleanup stale pending backtests failed: {e}")
+
+
+async def _cleanup_stale_pending():
+    """查询并取消所有超过 30 分钟的 pending 回测。"""
+    from datetime import timedelta
+    from sqlalchemy import select
+
+    local_engine, local_session_maker = await _make_local_session_maker()
+    try:
+        async with local_session_maker() as session:
+            cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+            result = await session.execute(
+                select(AIBacktest).where(
+                    AIBacktest.status == "pending",
+                    AIBacktest.created_at < cutoff,
+                )
+            )
+            stale_backtests = list(result.scalars().all())
+
+            if not stale_backtests:
+                logger.info("No stale pending backtests found")
+                return
+
+            logger.warning(
+                f"Found {len(stale_backtests)} stale pending backtests, cancelling..."
+            )
+
+            for bt in stale_backtests:
+                bt.status = "cancelled"
+                bt.completed_at = datetime.now(timezone.utc)
+                bt.result_summary = {
+                    "status": "cancelled",
+                    "message": "队列中超时自动取消（超过30分钟未消费）",
+                    "cancelled_at": datetime.now(timezone.utc).isoformat(),
+                }
+                logger.info(
+                    f"Cancelled stale backtest {bt.id} "
+                    f"(created: {bt.created_at}, age: {datetime.now(timezone.utc) - bt.created_at})"
+                )
+
+            await session.commit()
+
+            # 尝试从 Redis 队列中移除对应的任务消息
+            try:
+                import redis as sync_redis
+                from app.core.config import settings
+
+                r = sync_redis.from_url(settings.REDIS_URL)
+                for bt in stale_backtests:
+                    bt_id = str(bt.id)
+                    # 删除 Redis 中的停止标志（如果有）
+                    r.delete(f"stop:ai-backtest:{bt_id}")
+                    # 删除缓存进度
+                    r.delete(f"ai-backtest-last-progress:{bt_id}")
+                    # 推送取消事件
+                    _publish_progress(
+                        bt_id, "cancelled", 0, 0, bt.total_klines, 0,
+                        message="队列中超时自动取消（超过30分钟未消费）",
+                    )
+                r.close()
+            except Exception as e:
+                logger.warning(f"Failed to cleanup Redis keys: {e}")
+
+    finally:
+        await local_engine.dispose()
 
 
 @celery_app.task(bind=True, max_retries=0, acks_late=True)
@@ -230,7 +320,7 @@ async def _run_backtest_async(backtest_id: str):
         # 2. 预热阶段
         _publish_progress(backtest_id, "preheat", 2, 0, ctx.total_klines, 0,
                           message="正在获取预热数据...")
-        preheat_klines = _fetch_klines(ctx.symbol, ctx.timeframe, ctx.start_time, PREHEAT_COUNT)
+        preheat_klines = _fetch_preheat_klines(ctx)
         ctx.preheat_count = len(preheat_klines)
         ctx.all_klines = preheat_klines  # 先只放预热数据
 
@@ -463,6 +553,9 @@ async def _run_backtest_async(backtest_id: str):
                     precheck_triggered=ctx.precheck_triggered,
                     ai_call_count=ctx.ai_call_count,
                     current_stage_detail=current_stage_detail,
+                    key_levels=ctx.key_levels,
+                    initial_analysis=ctx.initial_analysis,
+                    has_position=ctx.current_position is not None,
                 )
 
         # 8. 生成总结
@@ -588,6 +681,9 @@ def _publish_progress(
     precheck_triggered: int = 0,
     ai_call_count: int = 0,
     current_stage_detail: str = "",
+    key_levels: Optional[List[Dict]] = None,
+    initial_analysis: Optional[Dict] = None,
+    has_position: bool = False,
 ):
     """推送进度到 Redis Pub/Sub。
 
@@ -612,6 +708,9 @@ def _publish_progress(
             "precheck_triggered": precheck_triggered,
             "ai_call_count": ai_call_count,
             "current_stage_detail": current_stage_detail,
+            "key_levels": key_levels or [],
+            "initial_analysis": initial_analysis,
+            "has_position": has_position,
         }
         if ai_analysis is not None:
             payload["ai_analysis"] = ai_analysis
@@ -630,7 +729,14 @@ def _publish_progress(
 
 
 def _fetch_klines(symbol: str, timeframe: str, since: datetime, limit: int) -> List[Dict]:
-    """获取历史 K 线数据（同步调用 CCXT）。"""
+    """获取历史 K 线数据（同步调用 CCXT）。
+
+    Args:
+        symbol: 交易对，如 BTC/USDT
+        timeframe: 时间周期，如 1h, 15m, 4h, 1d
+        since: 起始时间（从此时间开始取数据）
+        limit: 获取数量
+    """
     import ccxt
     from app.core.config import settings
 
@@ -654,9 +760,39 @@ def _fetch_klines(symbol: str, timeframe: str, since: datetime, limit: int) -> L
     ]
 
 
+def _timeframe_to_ms(timeframe: str) -> int:
+    """将时间周期字符串转换为毫秒数。"""
+    unit = timeframe[-1]  # 最后一个字符: m, h, d
+    value = int(timeframe[:-1])  # 数字部分
+    if unit == "m":
+        return value * 60 * 1000
+    elif unit == "h":
+        return value * 60 * 60 * 1000
+    elif unit == "d":
+        return value * 24 * 60 * 60 * 1000
+    else:
+        # 默认按小时处理
+        return int(timeframe.rstrip("h")) * 60 * 60 * 1000
+
+
 def _fetch_backtest_klines(ctx: AIBacktestContext) -> List[Dict]:
-    """拉取回测区间全部 K 线。"""
+    """拉取回测区间全部 K 线（从 start_time 开始）。"""
     return _fetch_klines(ctx.symbol, ctx.timeframe, ctx.start_time, ctx.total_klines)
+
+
+def _fetch_preheat_klines(ctx: AIBacktestContext) -> List[Dict]:
+    """拉取回测开始前的预热 K 线数据。
+
+    预热数据是 start_time 之前的 PREHEAT_COUNT 根 K 线，
+    用于计算技术指标和 AI 初始分析。
+    """
+    # 计算 start_time 之前 PREHEAT_COUNT 根 K 线的时间点
+    preheat_offset = PREHEAT_COUNT * _timeframe_to_ms(ctx.timeframe)
+    preheat_start = datetime.fromtimestamp(
+        (ctx.start_time.timestamp() * 1000 - preheat_offset) / 1000,
+        tz=timezone.utc,
+    )
+    return _fetch_klines(ctx.symbol, ctx.timeframe, preheat_start, PREHEAT_COUNT)
 
 
 def _ema(values: np.ndarray, period: int) -> float:

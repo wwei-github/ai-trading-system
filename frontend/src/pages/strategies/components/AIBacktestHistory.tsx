@@ -1,7 +1,7 @@
-import React from 'react';
-import { Table, Tag, Button, Space, Typography } from 'antd';
-import { EyeOutlined } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
+import React, { useCallback } from 'react';
+import { Table, Tag, Button, Space, Typography, Popconfirm, message } from 'antd';
+import { EyeOutlined, StopOutlined, MinusCircleOutlined } from '@ant-design/icons';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { aiBacktestApi } from '@/api/ai-backtest';
 import type { AIBacktestHistoryItem } from '@/types/ai-backtest';
@@ -13,6 +13,8 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
   running: { label: '运行中', color: 'processing' },
   completed: { label: '已完成', color: 'success' },
   failed: { label: '失败', color: 'error' },
+  cancelled: { label: '已取消', color: 'warning' },
+  cancelling: { label: '终止中', color: 'warning' },
 };
 
 interface Props {
@@ -20,12 +22,39 @@ interface Props {
 }
 
 export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
+  const queryClient = useQueryClient();
   const [page, setPage] = React.useState(1);
+  const [stoppingIds, setStoppingIds] = React.useState<Set<string>>(new Set());
 
   const { data, isLoading } = useQuery({
     queryKey: ['ai-backtest', 'history', page],
     queryFn: () => aiBacktestApi.getHistory(page),
   });
+
+  const handleStop = useCallback(async (record: AIBacktestHistoryItem) => {
+    setStoppingIds(prev => new Set(prev).add(record.id));
+    try {
+      if (record.status === 'pending') {
+        await aiBacktestApi.cancel(record.id);
+        message.success('已取消回测');
+      } else {
+        await aiBacktestApi.stop(record.id);
+        message.success('已发送终止指令');
+      }
+      // 刷新列表
+      queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'history'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'detail'] });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || '操作失败';
+      message.error(msg);
+    } finally {
+      setStoppingIds(prev => {
+        const next = new Set(prev);
+        next.delete(record.id);
+        return next;
+      });
+    }
+  }, [queryClient]);
 
   const columns = [
     {
@@ -93,16 +122,40 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
     {
       title: '操作',
       key: 'actions',
-      width: 80,
+      width: 140,
       render: (_: any, record: AIBacktestHistoryItem) => (
-        <Button
-          type="link"
-          size="small"
-          icon={<EyeOutlined />}
-          onClick={() => onSelect(record.id)}
-        >
-          查看
-        </Button>
+        <Space>
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => onSelect(record.id)}
+          >
+            查看
+          </Button>
+          {(record.status === 'pending' || record.status === 'running') && (
+            <Popconfirm
+              title={
+                record.status === 'pending'
+                  ? '确定要取消此回测吗？'
+                  : '确定要终止此回测吗？'
+              }
+              onConfirm={() => handleStop(record)}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button
+                type="link"
+                size="small"
+                danger
+                icon={record.status === 'pending' ? <MinusCircleOutlined /> : <StopOutlined />}
+                loading={stoppingIds.has(record.id)}
+              >
+                {record.status === 'pending' ? '取消' : '终止'}
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ];
@@ -120,7 +173,7 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
         onChange: setPage,
         showSizeChanger: false,
       }}
-      scroll={{ x: 1000 }}
+      scroll={{ x: 1100 }}
     />
   );
 };

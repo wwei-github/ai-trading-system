@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Tabs, Card, message } from 'antd';
 import dayjs from 'dayjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -16,7 +16,6 @@ import { AIBacktestProgress as AIBacktestProgressComp } from './AIBacktestProgre
 import { AIBacktestResult } from './AIBacktestResult';
 import { AIBacktestHistory } from './AIBacktestHistory';
 import { AIBacktestAnalysis } from './AIBacktestAnalysis';
-import { MergeOptimizeModal } from './MergeOptimizeModal';
 
 const DEFAULT_CONFIG: AIBacktestConfig = {
   strategyId: '',
@@ -42,6 +41,9 @@ const DEFAULT_CONFIG: AIBacktestConfig = {
   promptTemplateIds: {},
 };
 
+// localStorage 持久化 key
+const LS_BACKTEST_ID = 'ai_backtest_current_id';
+
 interface Props {
   strategyId: string;
 }
@@ -60,7 +62,10 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   });
   const strategyOptions = (strategies || []).map((s: any) => ({ id: s.id, name: s.name }));
 
-  const [currentBacktestId, setCurrentBacktestId] = useState<string | null>(null);
+  // 从 localStorage 恢复回测 ID
+  const [currentBacktestId, setCurrentBacktestId] = useState<string | null>(
+    () => localStorage.getItem(LS_BACKTEST_ID),
+  );
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState<AIBacktestProgress | null>(null);
   const [aiAnalysis, setAIAnalysis] = useState<AIBacktestAIAnalysis | null>(null);
@@ -75,14 +80,37 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   // 终止状态
   const [isStopping, setIsStopping] = useState(false);
 
-  // 融合优化弹窗
-  const [mergeModalOpen, setMergeModalOpen] = useState(false);
+  // 页面挂载时自动检测 localStorage 中的回测是否仍在运行
+  useEffect(() => {
+    const savedId = localStorage.getItem(LS_BACKTEST_ID);
+    if (!savedId) return;
+
+    // 查询详情，判断状态
+    aiBacktestApi.getDetail(savedId).then((res) => {
+      const detail = res.data;
+      if (detail.status === 'running' || detail.status === 'pending') {
+        setCurrentBacktestId(savedId);
+        setIsRunning(true);
+        setActiveTab('progress');
+        message.info('检测到正在进行的回测，已恢复进度显示');
+      } else if (detail.status === 'completed' || detail.status === 'cancelled' || detail.status === 'failed') {
+        // 已完成，清除 localStorage 并显示结果
+        localStorage.removeItem(LS_BACKTEST_ID);
+        setCurrentBacktestId(savedId);
+        setActiveTab('result');
+      }
+    }).catch(() => {
+      // 回测不存在或出错，清除 localStorage
+      localStorage.removeItem(LS_BACKTEST_ID);
+    });
+  }, []);
 
   // 创建单策略回测
   const createMutation = useMutation({
     mutationFn: (data: Parameters<typeof aiBacktestApi.create>[0]) => aiBacktestApi.create(data),
     onSuccess: (res) => {
       const btId = res.data.id;
+      localStorage.setItem(LS_BACKTEST_ID, btId);
       setCurrentBacktestId(btId);
       setIsRunning(true);
       setAIAnalysis(null);
@@ -158,6 +186,11 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   // 多策略融合优化 - 由 MergeOptimizeModal 内部处理 mutation,无需在此定义
 
   const handleSSEMessage = useCallback((data: any) => {
+    // pending 状态：回测在排队中，通知用户并保持当前页面
+    if (data.stage === 'pending') {
+      message.info('回测正在排队等待执行，请稍候...');
+      return;
+    }
     setProgress(data);
     // 提取 AI 分析数据
     if (data.ai_analysis) {
@@ -168,10 +201,15 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   const handleSSEDone = useCallback(() => {
     setIsRunning(false);
     setIsStopping(false);
+    localStorage.removeItem(LS_BACKTEST_ID);
+    // 如果 progress 的 stage 是 pending，不切换到 result 页
+    if (progress?.stage === 'pending') {
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'detail', currentBacktestId] });
     queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'trades', currentBacktestId] });
     queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'history'] });
-  }, [queryClient, currentBacktestId]);
+  }, [queryClient, currentBacktestId, progress?.stage]);
 
   const handleSSEError = useCallback(() => {
     setIsRunning(false);
@@ -298,8 +336,6 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
                 tradeTotal={tradesQuery.data?.data?.total || 0}
                 page={tradePage}
                 onPageChange={setTradePage}
-                onAnalyze={isDetailCompleted ? handleAnalyze : undefined}
-                onMergeOptimize={() => setMergeModalOpen(true)}
               />
             ),
           },
@@ -329,7 +365,6 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
           },
         ]}
       />
-      <MergeOptimizeModal open={mergeModalOpen} onClose={() => setMergeModalOpen(false)} />
     </Card>
   );
 };

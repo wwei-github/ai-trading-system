@@ -1,11 +1,10 @@
 import React, { useState } from 'react';
 import {
   Card, Row, Col, Statistic, Typography, Divider, Tag, Table, Space,
-  Button, Empty, message, Timeline, Rate,
+  Button, Empty, message, Timeline, Rate, Collapse,
 } from 'antd';
 import {
-  ArrowUpOutlined, ArrowDownOutlined, DownloadOutlined, RobotOutlined,
-  MergeCellsOutlined,
+  ArrowUpOutlined, ArrowDownOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type {
@@ -31,8 +30,6 @@ interface Props {
   tradeTotal: number;
   onPageChange?: (page: number) => void;
   page?: number;
-  onAnalyze?: () => void;
-  onMergeOptimize?: () => void;
 }
 
 const getTimelineColor = (trigger: AIAnalysisLogItem['trigger']): string => {
@@ -42,7 +39,7 @@ const getTimelineColor = (trigger: AIAnalysisLogItem['trigger']): string => {
 };
 
 export const AIBacktestResult: React.FC<Props> = ({
-  detail, trades, tradeTotal, onPageChange, page = 1, onAnalyze, onMergeOptimize,
+  detail, trades, tradeTotal, onPageChange, page = 1,
 }) => {
   const [selectedTrade, setSelectedTrade] = useState<AIBacktestTrade | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -83,92 +80,102 @@ export const AIBacktestResult: React.FC<Props> = ({
         </Space>
       </Card>
 
-      {/* AI 分析入口 */}
-      {detail.status === 'completed' && onAnalyze && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Space>
-            <Button
-              icon={<RobotOutlined />}
-              onClick={() => onAnalyze?.()}
-            >
-              AI 分析回测结果
-            </Button>
-            {detail.result_summary?.ai_analysis && (
-              <Tag color="success">已分析</Tag>
-            )}
-          </Space>
-        </Card>
-      )}
-
-      {/* 融合优化入口 */}
-      {detail.status === 'completed' && onMergeOptimize && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Space align="center">
-            <Button
-              type="primary"
-              ghost
-              icon={<MergeCellsOutlined />}
-              onClick={() => onMergeOptimize?.()}
-            >
-              融合优化
-            </Button>
-            <Text type="secondary">
-              基于本次回测结果与其他回测进行策略融合优化，生成改进后的新策略
-            </Text>
-          </Space>
-        </Card>
-      )}
-
-      {/* AI 分析日志时间线 */}
+      {/* AI 分析日志时间线（增强版，展示完整分析内容） */}
       {aiAnalysisLogs.length > 0 && (
         <Card size="small" title="AI 分析日志" style={{ marginBottom: 16 }}>
           <Timeline
-            items={aiAnalysisLogs.map((log) => ({
-              color: getTimelineColor(log.trigger),
-              children: (
-                <div>
-                  <Space wrap style={{ marginBottom: 4 }}>
-                    <Tag>K线 #{log.kline_index}</Tag>
-                    <Tag color={getTimelineColor(log.trigger)}>
-                      {TRIGGER_LABEL[log.trigger] || log.trigger}
-                    </Tag>
-                    {log.trigger_reason && (
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        {log.trigger_reason}
-                      </Text>
+            items={aiAnalysisLogs.map((log, logIdx) => {
+              const a = log.analysis || {};
+              const hasContent = a.summary || a.reasoning || a.stop_loss_method;
+              return {
+                color: getTimelineColor(log.trigger),
+                children: (
+                  <div>
+                    <Space wrap style={{ marginBottom: 4 }}>
+                      <Tag>K线 #{log.kline_index}</Tag>
+                      <Tag color={getTimelineColor(log.trigger)}>
+                        {TRIGGER_LABEL[log.trigger] || log.trigger}
+                      </Tag>
+                      {log.trigger_reason && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {log.trigger_reason}
+                        </Text>
+                      )}
+                      {a.decision && (
+                        <Tag color={DECISION_COLORS[a.decision] || 'default'}>
+                          {DECISION_LABEL[a.decision] || a.decision}
+                        </Tag>
+                      )}
+                      {a.confidence != null && (
+                        <Rate
+                          disabled
+                          allowHalf
+                          value={a.confidence / 20}
+                          style={{ fontSize: 12 }}
+                        />
+                      )}
+                    </Space>
+                    {/* 关键位 */}
+                    {a.key_levels && a.key_levels.length > 0 && (
+                      <Space wrap style={{ marginBottom: 4 }}>
+                        {a.key_levels.map((lvl: any, idx: number) => (
+                          <Tag key={idx} color={lvl.type === 'support' ? 'green' : 'red'}>
+                            {lvl.type === 'support' ? '支撑' : '阻力'}: {lvl.price}
+                          </Tag>
+                        ))}
+                      </Space>
                     )}
-                    <Tag color={DECISION_COLORS[log.analysis?.decision] || 'default'}>
-                      {DECISION_LABEL[log.analysis?.decision] || log.analysis?.decision}
-                    </Tag>
-                    {log.analysis?.confidence != null && (
-                      <Rate
-                        disabled
-                        allowHalf
-                        value={log.analysis.confidence / 20}
-                        style={{ fontSize: 12 }}
+                    {/* 止损止盈信息 */}
+                    {(a.stop_loss || a.take_profit) && (
+                      <Space wrap style={{ marginBottom: 4 }}>
+                        {a.stop_loss && <Text type="danger" style={{ fontSize: 12 }}>止损: {a.stop_loss}</Text>}
+                        {a.take_profit && <Text type="success" style={{ fontSize: 12 }}>止盈: {a.take_profit}</Text>}
+                        {a.stop_loss_method && <Text type="secondary" style={{ fontSize: 12 }}>方式: {a.stop_loss_method}</Text>}
+                        {a.risk_reward_ratio && <Text type="secondary" style={{ fontSize: 12 }}>盈亏比: {a.risk_reward_ratio}</Text>}
+                      </Space>
+                    )}
+                    {/* 分析总结内容 - 可折叠 */}
+                    {hasContent && (
+                      <Collapse
+                        ghost
+                        size="small"
+                        items={[
+                          {
+                            key: logIdx,
+                            label: <Text type="secondary" style={{ fontSize: 12 }}>查看完整分析</Text>,
+                            children: (
+                              <div style={{ fontSize: 12 }}>
+                                {a.summary && (
+                                  <div style={{ marginBottom: 8 }}>
+                                    <Text strong>分析摘要: </Text>
+                                    <Paragraph type="secondary" style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>
+                                      {a.summary}
+                                    </Paragraph>
+                                  </div>
+                                )}
+                                {a.reasoning && (
+                                  <div style={{ marginBottom: 8 }}>
+                                    <Text strong>决策理由: </Text>
+                                    <Paragraph type="secondary" style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>
+                                      {a.reasoning}
+                                    </Paragraph>
+                                  </div>
+                                )}
+                                {a.trend && (
+                                  <Text type="secondary">
+                                    趋势: {a.trend === 'bullish' ? '看涨' : a.trend === 'bearish' ? '看跌' : '中性'}
+                                  </Text>
+                                )}
+                              </div>
+                            ),
+                          },
+                        ]}
                       />
                     )}
-                  </Space>
-                  {log.analysis?.key_levels && log.analysis.key_levels.length > 0 && (
-                    <Space wrap style={{ marginBottom: 4 }}>
-                      {log.analysis.key_levels.map((lvl, idx) => (
-                        <Tag key={idx} color={lvl.type === 'support' ? 'green' : 'red'}>
-                          {lvl.type === 'support' ? '支撑' : '阻力'}: {lvl.price}
-                        </Tag>
-                      ))}
-                    </Space>
-                  )}
-                  {log.analysis?.reasoning && (
-                    <Paragraph
-                      type="secondary"
-                      style={{ fontSize: 12, marginBottom: 0, marginTop: 4 }}
-                    >
-                      {log.analysis.reasoning}
-                    </Paragraph>
-                  )}
-                </div>
-              ),
-            }))}
+                  </div>
+                ),
+              };
+            })}
           />
         </Card>
       )}

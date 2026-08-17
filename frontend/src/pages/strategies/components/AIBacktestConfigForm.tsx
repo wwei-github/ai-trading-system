@@ -351,12 +351,12 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
               <Form.Item
                 label="预筛 K 线数量"
                 name="localModelKlines"
-                rules={[{ type: 'number', min: 5, max: 50 }]}
-                extra="范围 5-50，默认 10"
+                rules={[{ type: 'number', min: 1, max: 100 }]}
+                extra="范围 1-100，默认 10"
               >
                 <InputNumber
-                  min={5}
-                  max={50}
+                  min={1}
+                  max={100}
                   defaultValue={10}
                   style={{ width: '100%' }}
                   addonAfter="根"

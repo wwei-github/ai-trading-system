@@ -224,6 +224,7 @@ export interface AIBacktestProgress {
   ai_analysis_mini?: AIAnalysisMini;
   key_levels?: KeyLevel[];
   trend?: 'bullish' | 'bearish' | 'neutral';
+  initial_analysis?: InitialAnalysis;
 }
 
 // 回测结果 AI 分析响应
@@ -309,9 +310,15 @@ export interface AIAnalysisMini {
 // 深度分析日志
 export interface AIAnalysisLogItem {
   kline_index: number;
-  trigger: 'precheck_pass' | 'key_level_hit' | 'position_closed' | 'initial';
+  trigger: string;
   trigger_reason: string;
-  analysis: AIAnalysisMini;
+  analysis: AIAnalysisMini & {
+    summary?: string;
+    stop_loss?: number;
+    take_profit?: number;
+    stop_loss_method?: string;
+    risk_reward_ratio?: number;
+  };
   created_at: string;
 }
 

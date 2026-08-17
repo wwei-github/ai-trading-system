@@ -96,12 +96,32 @@ async def get_ai_backtest_progress(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """SSE 流式推送回测进度。"""
-    # 验证所有权
+    """SSE 流式推送回测进度。
+
+    重要设计（解决浏览器一直 pending 的问题）：
+    1. 无论回测状态如何，都先从 Redis 缓存读取最新进度并立即推送
+    2. 运行中的回测：先推缓存快照，再订阅实时推送
+    3. 已完成/失败/取消的回测：推缓存 + 数据库数据，立即关闭
+    4. 每 15 秒发送心跳，防止连接超时
+    5. 5 分钟无数据自动关闭连接
+    """
     service = AIBacktestService(db)
     await service._verify_ownership(backtest_id, current_user.id)
 
     bt_id = str(backtest_id)
+
+    async def _read_cached():
+        """从 Redis 读取最新缓存进度。"""
+        if redis_client is None:
+            return None
+        try:
+            last_key = f"ai-backtest-last-progress:{bt_id}"
+            last_data = await redis_client.get(last_key)
+            if last_data:
+                return json.loads(last_data)
+        except Exception:
+            pass
+        return None
 
     async def event_generator():
         if redis_client is None:
@@ -109,14 +129,28 @@ async def get_ai_backtest_progress(
             yield "data: [DONE]\n\n"
             return
 
-        # 先推送当前状态
         backtest = await service.get_backtest(backtest_id, current_user.id)
+        stage_map = {
+            "completed": "done", "failed": "error",
+            "cancelled": "cancelled", "running": "running",
+            "pending": "pending",
+        }
+
+        # == 1. 先推缓存快照（无论回测状态如何） ==
+        cached = await _read_cached()
+        if cached:
+            # 从缓存补充 db 字段（ai_analysis_logs, initial_analysis 等）
+            cached["ai_analysis_logs"] = getattr(backtest, "ai_analysis_logs", [])
+            if backtest.initial_analysis:
+                cached["initial_analysis"] = backtest.initial_analysis
+            yield f"data: {json.dumps(cached, ensure_ascii=False)}\n\n"
+            # 如果缓存已经是终态，直接关闭
+            if cached.get("stage") in ("done", "error", "cancelled"):
+                yield "data: [DONE]\n\n"
+                return
+
+        # == 2. 如果回测已终态，补推数据库完整数据并关闭 ==
         if backtest.status in ("completed", "failed", "cancelled"):
-            stage_map = {
-                "completed": "done",
-                "failed": "error",
-                "cancelled": "cancelled",
-            }
             payload = {
                 "backtest_id": bt_id,
                 "stage": stage_map.get(backtest.status, "error"),
@@ -129,48 +163,84 @@ async def get_ai_backtest_progress(
                     "失败" if backtest.status == "failed" else
                     "取消"
                 ),
-                # 08-AI回测K线分析优化 新增字段
                 "precheck_total": backtest.precheck_total,
                 "precheck_triggered": backtest.precheck_triggered,
                 "ai_call_count": backtest.ai_call_count,
                 "current_stage_detail": "",
                 "initial_analysis": backtest.initial_analysis,
                 "ai_analysis_logs": backtest.ai_analysis_logs,
+                "key_levels": (backtest.initial_analysis or {}).get("key_levels", []),
+                "has_position": False,
             }
-            # 尝试从 Redis 读取最后一次推送的进度数据（包含 ai_analysis 和 indicators）
-            try:
-                last_key = f"ai-backtest-last-progress:{bt_id}"
-                last_data = await redis_client.get(last_key)
-                if last_data:
-                    last = json.loads(last_data)
-                    if last.get("ai_analysis"):
-                        payload["ai_analysis"] = last["ai_analysis"]
-                    if last.get("indicators"):
-                        payload["indicators"] = last["indicators"]
-            except Exception:
-                pass
+            # 如果缓存中有 ai_analysis 和 indicators，补进去
+            if cached:
+                if cached.get("ai_analysis"):
+                    payload["ai_analysis"] = cached["ai_analysis"]
+                if cached.get("indicators"):
+                    payload["indicators"] = cached["indicators"]
+            else:
+                # 没有缓存，尝试从 Redis 读
+                _c = await _read_cached()
+                if _c:
+                    if _c.get("ai_analysis"):
+                        payload["ai_analysis"] = _c["ai_analysis"]
+                    if _c.get("indicators"):
+                        payload["indicators"] = _c["indicators"]
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
             return
 
-        # 订阅 Redis Pub/Sub
+        # == 2.5 待开始回测：推数据库状态并关闭，不等待 ==
+        if backtest.status == "pending":
+            payload = {
+                "backtest_id": bt_id,
+                "stage": "pending",
+                "progress": 0,
+                "current_kline": 0,
+                "total_klines": backtest.total_klines,
+                "current_trades": 0,
+                "message": "回测正在排队等待执行，请稍候...",
+                "precheck_total": 0,
+                "precheck_triggered": 0,
+                "ai_call_count": 0,
+                "current_stage_detail": "",
+                "initial_analysis": None,
+                "ai_analysis_logs": [],
+                "key_levels": [],
+                "has_position": False,
+            }
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            yield "data: [DONE]\n\n"
+            return
+
+        # == 3. 运行中：订阅实时推送 + 心跳 ==
         pubsub = redis_client.pubsub()
         channel = f"ai-backtest-progress:{bt_id}"
         await pubsub.subscribe(channel)
 
         try:
             start = asyncio.get_event_loop().time()
-            timeout = 3600
+            timeout = 300  # 5 分钟无新数据自动关闭
+            last_heartbeat = start
             while True:
-                if asyncio.get_event_loop().time() - start > timeout:
+                elapsed = asyncio.get_event_loop().time() - start
+                if elapsed > timeout:
                     break
+
                 msg = await pubsub.get_message(
-                    ignore_subscribe_messages=True, timeout=5.0
+                    ignore_subscribe_messages=True, timeout=1.0
                 )
                 if msg is None:
+                    # 心跳：每 15 秒发送一次，保持连接活跃
+                    now = asyncio.get_event_loop().time()
+                    if now - last_heartbeat >= 15:
+                        yield ": heartbeat\n\n"
+                        last_heartbeat = now
                     continue
+
                 if msg.get("type") == "message":
                     yield f"data: {msg.get('data')}\n\n"
+                    last_heartbeat = asyncio.get_event_loop().time()
                     try:
                         payload = json.loads(msg.get("data"))
                         if payload.get("stage") in ("done", "error", "cancelled"):

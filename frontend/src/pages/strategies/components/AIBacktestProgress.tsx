@@ -24,6 +24,7 @@ import type {
 const { Text, Title, Paragraph } = Typography;
 
 const STAGE_LABEL: Record<string, string> = {
+  pending: '排队等待',
   preheat: '预热数据获取',
   running: '逐根推进中',
   summary: '生成总结报告',
@@ -190,6 +191,38 @@ export const AIBacktestProgress: React.FC<Props> = ({
         </Card>
       )}
 
+      {/* 初始分析信息 */}
+      {progress.initial_analysis && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Text strong>初始分析: </Text>
+            <Tag color={TREND_MAP[progress.initial_analysis.trend]?.color || 'default'}>
+              {TREND_MAP[progress.initial_analysis.trend]?.label || progress.initial_analysis.trend}
+            </Tag>
+            {progress.initial_analysis.trend_summary && (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                {progress.initial_analysis.trend_summary}
+              </Text>
+            )}
+          </Space>
+        </Card>
+      )}
+
+      {/* 关键位展示 */}
+      {progress.key_levels && progress.key_levels.length > 0 && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space wrap>
+            <Text strong>关键位: </Text>
+            {progress.key_levels.map((level: KeyLevel, idx: number) => (
+              <Tag key={idx} color={level.type === 'support' ? 'cyan' : 'magenta'}>
+                {level.type === 'support' ? '支撑' : '阻力'} {level.price.toFixed(2)}
+                {level.distance_pct != null && ` (${level.distance_pct.toFixed(2)}%)`}
+              </Tag>
+            ))}
+          </Space>
+        </Card>
+      )}
+
       {/* 持仓暂停指示 */}
       {progress.has_position && (
         <Alert
@@ -321,20 +354,6 @@ export const AIBacktestProgress: React.FC<Props> = ({
               <Rate disabled count={5} value={aiAnalysis.confidence} style={{ fontSize: 14 }} />
             </Space>
           </div>
-
-          {/* 关键位 */}
-          {progress.key_levels && progress.key_levels.length > 0 && (
-            <div style={{ marginTop: 12 }}>
-              <Space wrap>
-                <Text type="secondary">关键位:</Text>
-                {progress.key_levels.map((level: KeyLevel, idx: number) => (
-                  <Tag key={idx} color={level.type === 'support' ? 'cyan' : 'magenta'}>
-                    {level.type === 'support' ? '支撑' : '阻力'} {level.price.toFixed(2)}
-                  </Tag>
-                ))}
-              </Space>
-            </div>
-          )}
 
           {/* 分析摘要 */}
           <div style={{ marginTop: 12 }}>

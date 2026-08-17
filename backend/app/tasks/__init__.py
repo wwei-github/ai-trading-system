@@ -74,6 +74,11 @@ celery_app.conf.update(
             "task": "monitor_live_risk",
             "schedule": crontab(minute="*"),
         },
+        # 每 5 分钟清理超时未消费的 pending 回测任务
+        "cleanup-stale-pending-backtests-every-5-min": {
+            "task": "cleanup_stale_pending_backtests",
+            "schedule": crontab(minute="*/5"),
+        },
     },
 )
 
