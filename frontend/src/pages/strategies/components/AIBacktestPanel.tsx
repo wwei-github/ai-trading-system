@@ -235,9 +235,9 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   }, [queryClient, currentBacktestId, progress?.stage]);
 
   const handleSSEError = useCallback(() => {
-    setIsRunning(false);
-    setIsStopping(false);
-    message.warning('进度连接中断，请刷新页面查看最新状态');
+    // 不立即停止运行状态，SSE hook 会自动重连
+    // 当重试次数耗尽（999次）时 onDone 会被调用，在那里处理
+    console.warn('SSE 连接中断，正在自动重连...');
   }, []);
 
   useSSE({

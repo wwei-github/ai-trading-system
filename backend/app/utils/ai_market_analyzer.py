@@ -85,20 +85,35 @@ _MARKET_ANALYSIS_PROMPT = """你是一个专业的加密货币交易AI助手，�
 # 快速预筛 Prompt
 AI_QUICK_PRECHECK_PROMPT = """你是一个技术分析预筛助手。请快速分析最近K线，判断是否满足策略入场条件。
 
-## 策略入场规则
+## 策略入场规则（可能包含多个策略的规则，每个策略独立判断）
 {entry_rules}
 
 ## 最近 {kline_count} 根K线
 {recent_klines}
 
+## 当前最新价格
+最新K线收盘价：{current_close:.2f}
+最新K线最高价：{current_high:.2f}
+最新K线最低价：{current_low:.2f}
+
 ## 技术指标摘要
 {indicators_summary}
 
 请判断：最近K线是否出现了符合策略入场规则条件的信号？
-注意：只做粗略判断，不需要详细分析。
+
+### 判断规则（重要）：
+- 每个策略的入场规则**独立判断**，互不干扰
+- 对于每个策略，逐一检查其入场规则是否满足当前K线条件
+- **只要任意一个策略的入场条件满足**，就应返回 should_analyze=true
+- 只做粗略判断，不需要详细分析
+
+### 输出要求：
+- reason 中必须**逐一列出每个策略**的判断结果，说明各自是否满足条件
+- 例如：策略A（满足：均线金叉）、策略B（不满足：RSI未超卖）、策略C（满足：价格突破前高）
+- 如果只有一个策略，直接说明该策略条件是否满足
 
 仅输出 JSON 格式：
-{{"should_analyze": true/false, "reason": "判断理由（一句话）"}}
+{{"should_analyze": true/false, "reason": "判断理由（逐一列出每个策略的判断结果，说明各自是否满足条件）"}}
 
 注意：
 - 只输出JSON，不要输出其他文字
@@ -115,6 +130,7 @@ AI_ANALYSIS_WINDOW_PROMPT = """你是一个专业的加密货币交易AI助手�
 - 时间周期：{timeframe}
 - 当前已推进：第 {current_kline_index} 根 / 共 {total_klines} 根
 - K线窗口：最近 {window_size} 根（从索引 {window_start} 到 {window_end}）
+- 当前最新价格：{current_price}
 
 ## K线窗口摘要
 {window_summary}
@@ -141,13 +157,26 @@ AI_ANALYSIS_WINDOW_PROMPT = """你是一个专业的加密货币交易AI助手�
 
 请分析以上K线窗口中的市场状态，特别是最新K线的信号，并给出交易决策。
 
+### 多策略决策规则（重要）：
+- 如果存在多个策略，**每个策略的入场条件必须独立判断**
+- 对于每个策略，你必须：
+  1. 逐一检查该策略的所有入场规则
+  2. 明确说明该策略的条件是否满足
+  3. 简要说明判断依据
+- **只要任意一个策略的入场条件满足**，即可开仓
+- 开仓理由中必须**逐一列出每个策略**的判断结果
+- 通过 source_strategy 指定最终触发开仓的是哪个策略
+
 ### 开仓要求：
 - 入场信号必须严格符合策略的入场规则（entry_rules）
 - 如果开仓，必须提供止损价（stop_loss）
 - 止损价必须基于策略指定的止损方式（如 Pinbar 极值、ATR倍数、固定百分比等）
 - 止盈价（take_profit）必须基于合理的盈亏比（至少 1.5R，建议 1.5R~2R）
-- 仓位大小（position_size_pct）必须遵循策略的仓位管理规则
-- 开仓理由（reason）必须说明哪个具体规则条件触发了信号
+- 仓位大小（position_size_pct）必须遵循触发策略的仓位管理规则
+- 开仓理由（reason）必须：
+  1. **逐一说明每个策略**是否满足入场条件及判断依据
+  2. 说明触发开仓的具体策略和规则条件
+  3. 总结为什么满足条件就可以开仓
 
 ### 持仓管理：
 - 有持仓时，基于策略的出场规则（exit_rules）判断是否平仓
@@ -161,9 +190,10 @@ AI_ANALYSIS_WINDOW_PROMPT = """你是一个专业的加密货币交易AI助手�
     "summary": "基于窗口数据的简要分析"
   }},
   "decision": "open_long/open_short/close_long/close_short/hold",
+  "source_strategy": "触发开仓的策略名称（如只有一个策略则留空，多个策略时必填）",
   "trade_plan": {{
     "action": "同上",
-    "reason": "理由（必须说明触发的具体规则条件）",
+    "reason": "理由（必须逐一说明每个策略是否满足入场条件及判断依据，说明触发开仓的具体策略和规则，总结为什么满足条件）",
     "confidence": 4,
     "entry_price": 0,
     "quantity": 0,
@@ -235,6 +265,7 @@ class AIMarketAnalyzer:
         account_status: Dict[str, Any],
         current_kline_index: int,
         total_klines: int,
+        multi_strategy_rules: List[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         调用 AI 分析当前市场并给出决策。
@@ -262,6 +293,20 @@ class AIMarketAnalyzer:
             f"风控: {strategy_rules.get('risk_control', {})}"
         )
 
+        # 多策略参考规则
+        multi_strategy_section = ""
+        if multi_strategy_rules:
+            parts = []
+            for s in multi_strategy_rules:
+                parts.append(
+                    f"--- {s.get('name', '未知策略')} ---\n"
+                    f"入场规则: {s.get('rules', {}).get('entry_rules', [])}\n"
+                    f"出场规则: {s.get('rules', {}).get('exit_rules', [])}\n"
+                    f"仓位管理: {s.get('rules', {}).get('position_sizing', {})}\n"
+                    f"风控: {s.get('rules', {}).get('risk_control', {})}"
+                )
+            multi_strategy_section = "\n\n## 参考策略规则（每个策略独立判断，任一满足即可开仓）\n" + "\n\n".join(parts)
+
         prompt = _MARKET_ANALYSIS_PROMPT.format(
             strategy_category=strategy_category,
             symbol=symbol,
@@ -280,7 +325,7 @@ class AIMarketAnalyzer:
             resistance_levels=indicators.get("resistance", []),
             position_status=position_status,
             strategy_rules=strategy_summary,
-        )
+        ) + multi_strategy_section
 
         # 调用 LLM（异步方式，在 Celery 任务的 asyncio.run() 上下文中运行）
         try:
@@ -349,6 +394,7 @@ class AIMarketAnalyzer:
         strategy_rules: Dict[str, Any],
         symbol: str,
         timeframe: str,
+        multi_strategy_rules: List[Dict[str, Any]] = None,
     ) -> Tuple[bool, str]:
         """AI 粗略预筛：使用主 AI Provider 分析少量 K 线，判断是否满足策略入场条件。
 
@@ -381,7 +427,26 @@ class AIMarketAnalyzer:
         )
 
         entry_rules = strategy_rules.get("entry_rules", [])
-        entry_rules_str = json.dumps(entry_rules, ensure_ascii=False, indent=2)
+        # 多策略参考规则（保留策略名称，让AI能逐一判断每个策略）
+        if multi_strategy_rules:
+            parts = []
+            # 主策略
+            main_name = strategy_rules.get("name", "主策略")
+            parts.append(
+                f"--- {main_name}（主策略） ---\n"
+                f"入场规则: {json.dumps(entry_rules, ensure_ascii=False, indent=2)}"
+            )
+            # 其他策略
+            for s in multi_strategy_rules:
+                s_name = s.get("name", "未知策略")
+                s_entry = s.get("rules", {}).get("entry_rules", [])
+                parts.append(
+                    f"--- {s_name} ---\n"
+                    f"入场规则: {json.dumps(s_entry, ensure_ascii=False, indent=2)}"
+                )
+            entry_rules_str = "\n\n".join(parts)
+        else:
+            entry_rules_str = json.dumps(entry_rules, ensure_ascii=False, indent=2)
 
         template = self._get_template_content("backtest_precheck")
         prompt = template.format(
@@ -389,6 +454,9 @@ class AIMarketAnalyzer:
             kline_count=kline_count,
             recent_klines=recent_klines,
             indicators_summary=indicators,
+            current_close=closes[-1],
+            current_high=highs[-1],
+            current_low=lows[-1],
         )
 
         try:
@@ -423,6 +491,7 @@ class AIMarketAnalyzer:
         account_status: Dict[str, Any],
         current_kline_index: int,
         total_klines: int,
+        multi_strategy_rules: List[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """AI 深度分析（限制 K 线窗口最多 300 根）。
 
@@ -471,6 +540,20 @@ class AIMarketAnalyzer:
             f"出场规则: {strategy_rules.get('exit_rules', [])}"
         )
 
+        # 多策略参考规则（深度分析）
+        multi_strategy_section = ""
+        if multi_strategy_rules:
+            parts = []
+            for s in multi_strategy_rules:
+                parts.append(
+                    f"--- {s.get('name', '未知策略')} ---\n"
+                    f"入场规则: {s.get('rules', {}).get('entry_rules', [])}\n"
+                    f"出场规则: {s.get('rules', {}).get('exit_rules', [])}\n"
+                    f"仓位管理: {s.get('rules', {}).get('position_sizing', {})}\n"
+                    f"风控: {s.get('rules', {}).get('risk_control', {})}"
+                )
+            multi_strategy_section = "\n\n## 参考策略规则（每个策略独立判断，任一满足即可开仓）\n" + "\n\n".join(parts)
+
         # 仓位管理、风控、前提规则
         position_sizing_rules = json.dumps(strategy_rules.get("position_sizing", {}), ensure_ascii=False, indent=2)
         risk_control_rules = json.dumps(strategy_rules.get("risk_control", {}), ensure_ascii=False, indent=2)
@@ -503,7 +586,8 @@ class AIMarketAnalyzer:
             position_sizing_rules=position_sizing_rules,
             risk_control_rules=risk_control_rules,
             prerequisites_rules=prerequisites_rules,
-        )
+            current_price=closes[-1],
+        ) + multi_strategy_section
 
         # 调用 LLM
         result = await self._call_llm(prompt)
@@ -530,6 +614,7 @@ class AIMarketAnalyzer:
         strategy_rules: Dict[str, Any],
         symbol: str,
         timeframe: str,
+        multi_strategy_rules: List[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """初始化 300 根 K 线分析，提取趋势和关键位。
 
@@ -572,14 +657,21 @@ class AIMarketAnalyzer:
             f"K线数量: {count}"
         )
 
+        entry_rules = strategy_rules.get("entry_rules", [])
+        # 多策略入场规则合并
+        if multi_strategy_rules:
+            all_entry_rules = list(entry_rules)
+            for s in multi_strategy_rules:
+                s_entry = s.get("rules", {}).get("entry_rules", [])
+                all_entry_rules.extend(s_entry)
+            entry_rules = all_entry_rules
+
         template = self._get_template_content("initial_analysis")
         prompt = template.format(
             count=count,
             kline_summary=kline_summary,
             indicators_summary=indicators_summary,
-            entry_rules=json.dumps(
-                strategy_rules.get("entry_rules", []), ensure_ascii=False
-            ),
+            entry_rules=json.dumps(entry_rules, ensure_ascii=False),
         )
 
         try:

@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import { DashboardOutlined, BankOutlined, SwapOutlined, BarChartOutlined, DotChartOutlined, ThunderboltOutlined, BookOutlined, RobotOutlined, FileTextOutlined, SettingOutlined, WarningOutlined } from '@ant-design/icons';
+import { DashboardOutlined, BankOutlined, SwapOutlined, BarChartOutlined, DotChartOutlined, ThunderboltOutlined, BookOutlined, RobotOutlined, FileTextOutlined, WarningOutlined, SettingOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 
 // 菜单项配置
 export interface MenuItemConfig {
@@ -23,6 +23,7 @@ export const menuItems: MenuItemConfig[] = [
   { key: '/ai', label: 'AI 助手', icon: RobotOutlined },
   { key: '/prompts', label: 'Prompt 模板', icon: FileTextOutlined },
   { key: '/error-logs', label: '错误日志', icon: WarningOutlined },
+  { key: '/tasks', label: '后台任务', icon: DeploymentUnitOutlined },
   { key: '/system', label: '系统设置', icon: SettingOutlined },
 ];
 

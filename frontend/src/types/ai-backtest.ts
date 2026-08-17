@@ -347,6 +347,7 @@ export interface TradeInfo {
   take_profit?: number;
   open_confidence?: number;
   risk_reward_ratio?: number;
+  source_strategy?: string;
   // 平仓专用
   exit_price?: number;
   pnl?: number;

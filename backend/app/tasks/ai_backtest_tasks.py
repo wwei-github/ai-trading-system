@@ -182,6 +182,7 @@ def _append_trade_opened_log(ctx: AIBacktestContext, kline_index: int) -> None:
             "take_profit": trade.get("take_profit"),
             "open_confidence": trade.get("open_confidence"),
             "risk_reward_ratio": risk_reward,
+            "source_strategy": trade.get("source_strategy", ""),
         },
     }
     ctx._analysis_logs.append(log_entry)
@@ -474,6 +475,7 @@ async def _run_backtest_async(backtest_id: str):
                     strategy_rules=ctx.strategy_rules,
                     symbol=ctx.symbol,
                     timeframe=ctx.timeframe,
+                    multi_strategy_rules=ctx.multi_strategy_rules,
                 )
                 ctx.initial_analysis = initial_result
                 ctx.key_levels = initial_result.get("key_levels", [])
@@ -569,6 +571,7 @@ async def _run_backtest_async(backtest_id: str):
                                 strategy_rules=ctx.strategy_rules,
                                 symbol=ctx.symbol,
                                 timeframe=ctx.timeframe,
+                                multi_strategy_rules=ctx.multi_strategy_rules,
                             )
                             ctx.last_trigger_reason = "ai_precheck" if precheck_passed else None
 
@@ -601,6 +604,7 @@ async def _run_backtest_async(backtest_id: str):
                             indicators=indicators,
                             position=ctx.current_position,
                             strategy_rules=ctx.strategy_rules,
+                            multi_strategy_rules=ctx.multi_strategy_rules,
                             account_status={
                                 "initial_capital": ctx.initial_capital,
                                 "current_equity": ctx.current_equity,
@@ -657,6 +661,7 @@ async def _run_backtest_async(backtest_id: str):
                         indicators=indicators,
                         position=None,
                         strategy_rules=ctx.strategy_rules,
+                        multi_strategy_rules=ctx.multi_strategy_rules,
                         account_status={
                             "initial_capital": ctx.initial_capital,
                             "current_equity": ctx.current_equity,

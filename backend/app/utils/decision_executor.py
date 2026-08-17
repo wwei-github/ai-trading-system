@@ -143,6 +143,7 @@ class DecisionExecutor:
             "stop_loss": stop_loss,
             "take_profit": take_profit,
             "fee": cost * self.ctx.fee_rate,
+            "source_strategy": ai_result.get("source_strategy", "") if ai_result else "",
         }
         self.ctx.current_trade = trade
         self.ctx.total_trades += 1

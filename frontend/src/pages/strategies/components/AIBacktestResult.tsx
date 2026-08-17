@@ -196,6 +196,11 @@ export const AIBacktestResult: React.FC<Props> = ({
                                       style={{ fontSize: 12 }}
                                     />
                                   )}
+                                  {ti.source_strategy && (
+                                    <Tag color="blue" style={{ fontSize: 11 }}>
+                                      策略: {ti.source_strategy}
+                                    </Tag>
+                                  )}
                                 </Space>
                               </Space>
                             </Card>

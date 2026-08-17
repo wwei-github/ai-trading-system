@@ -15,6 +15,7 @@ const AiPage = lazy(() => import('@/pages/ai'));
 const PromptsPage = lazy(() => import('@/pages/prompts'));
 const SystemPage = lazy(() => import('@/pages/system'));
 const ErrorLogsPage = lazy(() => import('@/pages/error-logs'));
+const TasksPage = lazy(() => import('@/pages/tasks'));
 
 const SuspenseWrapper = ({ children }: { children: React.ReactNode }) => (
   <Suspense
@@ -46,6 +47,7 @@ export const router = createBrowserRouter([
       { path: 'prompts', element: <SuspenseWrapper><PromptsPage /></SuspenseWrapper> },
       { path: 'system', element: <SuspenseWrapper><SystemPage /></SuspenseWrapper> },
       { path: 'error-logs', element: <SuspenseWrapper><ErrorLogsPage /></SuspenseWrapper> },
+      { path: 'tasks', element: <SuspenseWrapper><TasksPage /></SuspenseWrapper> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

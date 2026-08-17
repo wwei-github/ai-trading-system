@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 
 interface SSEOptions {
   url: string;
@@ -8,24 +8,30 @@ interface SSEOptions {
   enabled?: boolean;
 }
 
-const MAX_RETRIES = 20;
+const MAX_RETRIES = 999;  // 几乎无限重试，直到回测完成
+const RETRY_DELAY_MS = 3000;  // 重连间隔 3 秒
 
 export function useSSE({ url, onMessage, onDone, onError, enabled = true }: SSEOptions) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [shouldReconnect, setShouldReconnect] = useState(0);  // 触发重连的计数器
 
   const close = useCallback(() => {
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
     retryCountRef.current = 0;
   }, []);
 
-  useEffect(() => {
+  const connect = useCallback(() => {
     if (!enabled || !url) return;
 
     const es = new EventSource(url);
     eventSourceRef.current = es;
-    retryCountRef.current = 0;
 
     es.onmessage = (event) => {
       // 心跳注释（以 : 开头）也会触发 onmessage，但 event.data 为空
@@ -36,6 +42,7 @@ export function useSSE({ url, onMessage, onDone, onError, enabled = true }: SSEO
         onDone?.();
         es.close();
         eventSourceRef.current = null;
+        retryCountRef.current = 0;
         return;
       }
       try {
@@ -50,25 +57,32 @@ export function useSSE({ url, onMessage, onDone, onError, enabled = true }: SSEO
 
     es.onerror = (error) => {
       retryCountRef.current += 1;
-      console.warn(`SSE error (retry #${retryCountRef.current}):`, error);
+      console.warn(`SSE connection broken (retry #${retryCountRef.current}):`, error);
       onError?.(error);
+
+      // 关闭当前坏连接
+      es.close();
+      eventSourceRef.current = null;
 
       // 超过最大重试次数，彻底关闭
       if (retryCountRef.current >= MAX_RETRIES) {
-        console.error('SSE max retries reached, closing connection');
-        es.close();
-        eventSourceRef.current = null;
+        console.error('SSE max retries reached, giving up');
         onDone?.();
+        return;
       }
-      // 注意：不主动 es.close()，让浏览器 EventSource 自动重连
-    };
 
-    return () => {
-      es.close();
-      eventSourceRef.current = null;
-      retryCountRef.current = 0;
+      // 延迟后自动重连
+      retryTimeoutRef.current = setTimeout(() => {
+        console.info(`SSE reconnecting... (attempt ${retryCountRef.current + 1}/${MAX_RETRIES})`);
+        setShouldReconnect(prev => prev + 1);  // 触发 useEffect 重新连接
+      }, RETRY_DELAY_MS);
     };
   }, [url, enabled, onMessage, onDone, onError]);
+
+  useEffect(() => {
+    connect();
+    return () => close();
+  }, [connect, close, shouldReconnect]);  // shouldReconnect 变化时重新连接
 
   return { close };
 }

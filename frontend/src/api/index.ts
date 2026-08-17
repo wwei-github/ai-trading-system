@@ -11,3 +11,4 @@ export { systemApi } from './system';
 export { aiProviderApi } from './ai-provider';
 export { default as aiBacktestApi, promptTemplateApi } from './ai-backtest';
 export { default as request } from './request';
+export { taskApi } from './tasks';
