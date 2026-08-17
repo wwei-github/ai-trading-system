@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.provider_factory import ProviderFactory
 
@@ -54,7 +54,7 @@ class LocalModelPrechecker:
         strategy_rules: Dict[str, Any],
         symbol: str,
         timeframe: str,
-    ) -> bool:
+    ) -> Tuple[bool, str]:
         """本地模型预筛。
 
         Args:
@@ -64,8 +64,7 @@ class LocalModelPrechecker:
             timeframe: K 线周期
 
         Returns:
-            True = 满足条件，触发 AI 深度分析
-            False = 不满足，跳过
+            (passed, raw_response): 是否满足条件、原始 AI 响应文本
         """
         # 构建 K 线摘要
         kline_count = len(kline_window)
@@ -108,11 +107,11 @@ class LocalModelPrechecker:
                 temperature=0.05,
                 max_tokens=200,
             )
-            return self._parse_result(result)
+            return self._parse_result(result), result
         except Exception as e:
             logger.warning(f"Local model precheck failed: {e}")
             # 失败时保守处理：返回 True，让主 AI 分析
-            return True
+            return True, f"本地模型预筛执行失败: {e}"
 
     def _parse_result(self, raw: str) -> bool:
         """解析本地模型返回结果。"""

@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.services.provider_factory import ProviderFactory
 
@@ -349,7 +349,7 @@ class AIMarketAnalyzer:
         strategy_rules: Dict[str, Any],
         symbol: str,
         timeframe: str,
-    ) -> bool:
+    ) -> Tuple[bool, str]:
         """AI 粗略预筛：使用主 AI Provider 分析少量 K 线，判断是否满足策略入场条件。
 
         Args:
@@ -359,8 +359,7 @@ class AIMarketAnalyzer:
             timeframe: K 线周期
 
         Returns:
-            True = 可能满足条件，触发第二级 AI 深度分析
-            False = 不满足，跳过
+            (passed, raw_response): 是否满足条件、原始 AI 响应文本
         """
         kline_count = len(kline_window)
         recent_klines_lines = []
@@ -394,11 +393,11 @@ class AIMarketAnalyzer:
 
         try:
             result = await self._call_llm(prompt, temperature=0.05, max_tokens=200)
-            return self._parse_precheck_result(result)
+            return self._parse_precheck_result(result), result
         except Exception as e:
             logger.warning(f"AI quick precheck failed: {e}")
             # 失败时保守处理：返回 True，让第二级 AI 分析
-            return True
+            return True, f"快速预筛执行失败: {e}"
 
     def _parse_precheck_result(self, raw: str) -> bool:
         """解析预筛结果。"""

@@ -313,13 +313,21 @@ export interface AIAnalysisLogItem {
   kline_index: number;
   trigger: string;
   trigger_reason: string;
-  analysis: AIAnalysisMini & {
+  analysis: {
+    trend?: string;
     summary?: string;
+    reasoning?: string;
+    decision?: string;
+    confidence?: number;
+    key_levels?: KeyLevel[];
     stop_loss?: number;
     take_profit?: number;
     stop_loss_method?: string;
     risk_reward_ratio?: number;
   };
+  skipped?: boolean;
+  precheck?: boolean;
+  had_position?: boolean;
   created_at: string;
 }
 

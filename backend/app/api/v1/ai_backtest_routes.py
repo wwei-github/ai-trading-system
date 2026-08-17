@@ -293,6 +293,21 @@ async def stop_ai_backtest(
     return ApiResponse(data={"status": "stopping"})
 
 
+@router.delete("/{backtest_id}", summary="删除 AI 回测记录")
+async def delete_ai_backtest(
+    backtest_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """删除 AI 回测记录（含交易明细、分析日志和 Redis 缓存）。
+
+    仅支持删除已完成的回测（completed / cancelled / failed）。
+    """
+    service = AIBacktestService(db)
+    await service.delete_backtest(backtest_id, current_user.id)
+    return ApiResponse(data={"status": "deleted"})
+
+
 @router.post("/{backtest_id}/analyze", summary="AI 分析回测结果")
 async def analyze_ai_backtest(
     backtest_id: uuid.UUID,

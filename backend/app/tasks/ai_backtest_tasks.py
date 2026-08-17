@@ -144,6 +144,56 @@ def _append_analysis_log(ctx: AIBacktestContext, kline_index: int,
     ctx._analysis_logs.append(log_entry)
 
 
+def _append_skip_log(ctx: AIBacktestContext, kline_index: int,
+                      skip_reason: str, had_position: bool = False) -> None:
+    """记录跳过 AI 分析的 K 线日志（每根 K 线都有记录）。"""
+    if not hasattr(ctx, "_analysis_logs"):
+        ctx._analysis_logs = []
+    log_entry = {
+        "kline_index": kline_index,
+        "trigger": "skipped",
+        "trigger_reason": skip_reason,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "analysis": {},
+        "skipped": True,
+        "had_position": had_position,
+    }
+    ctx._analysis_logs.append(log_entry)
+
+
+def _append_precheck_log(ctx: AIBacktestContext, kline_index: int,
+                          raw_response: str) -> None:
+    """记录预筛通过日志（展示预筛 AI 的原始分析结果）。"""
+    if not hasattr(ctx, "_analysis_logs"):
+        ctx._analysis_logs = []
+    # 尝试提取 JSON 中的 summary 字段
+    summary = ""
+    try:
+        start = raw_response.find("{")
+        end = raw_response.rfind("}")
+        if start >= 0 and end > start:
+            parsed = json.loads(raw_response[start:end + 1])
+            summary = parsed.get("summary", raw_response[:200])
+        else:
+            summary = raw_response[:200]
+    except Exception:
+        summary = raw_response[:200]
+
+    log_entry = {
+        "kline_index": kline_index,
+        "trigger": "precheck_pass",
+        "trigger_reason": "预筛通过，即将进入深度分析",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "analysis": {
+            "summary": summary,
+            "reasoning": raw_response,
+        },
+        "skipped": False,
+        "precheck": True,
+    }
+    ctx._analysis_logs.append(log_entry)
+
+
 @celery_app.task(bind=True, max_retries=0, acks_late=True)
 def cleanup_stale_pending_backtests(self):
     """定时清理队列中超过 30 分钟未消费的 pending 回测任务。
@@ -393,6 +443,7 @@ async def _run_backtest_async(backtest_id: str):
                     # 有持仓：跳过 AI 分析
                     should_analyze = False
                     ctx.ai_analysis_paused = True
+                    _append_skip_log(ctx, idx + 1, "持仓中，跳过AI分析", had_position=True)
                 else:
                     # 无持仓：先检查关键位命中
                     key_level_hit = _check_key_level_hit(kline, ctx.key_levels)
@@ -406,10 +457,11 @@ async def _run_backtest_async(backtest_id: str):
                         # 未命中关键位 → 走两级预筛
                         # 第一级：AI 粗略预筛（主 AI 或 本地模型）
                         precheck_passed = False
+                        precheck_response = ""
                         if ctx.use_local_model and local_prechecker:
                             # 模式 B：本地模型预筛
                             local_window = kline_data[-ctx.local_model_klines:]
-                            precheck_passed = await local_prechecker.precheck(
+                            precheck_passed, precheck_response = await local_prechecker.precheck(
                                 kline_window=local_window,
                                 strategy_rules=ctx.strategy_rules,
                                 symbol=ctx.symbol,
@@ -419,7 +471,7 @@ async def _run_backtest_async(backtest_id: str):
                         else:
                             # 模式 A（默认）：主 AI 粗略预筛
                             quick_window = kline_data[-min(ctx.local_model_klines, len(kline_data)):]
-                            precheck_passed = await analyzer.quick_precheck(
+                            precheck_passed, precheck_response = await analyzer.quick_precheck(
                                 kline_window=quick_window,
                                 strategy_rules=ctx.strategy_rules,
                                 symbol=ctx.symbol,
@@ -431,12 +483,19 @@ async def _run_backtest_async(backtest_id: str):
                         if precheck_passed:
                             ctx.precheck_triggered += 1
                             should_analyze = True
+                            # 记录预筛通过日志（含原始 AI 响应）
+                            _append_precheck_log(ctx, idx + 1, precheck_response)
                         else:
                             should_analyze = False
+                            _append_skip_log(ctx, idx + 1, "预筛未通过，跳过AI分析")
                             logger.debug(f"Precheck not passed at kline {idx+1}")
+            else:
+                # AI 已禁用（连续失败降级或配置关闭），仅处理平仓/止损
+                _append_skip_log(ctx, idx + 1, "AI已降级为规则引擎，仅处理平仓/止损",
+                                 had_position=had_position)
 
-                # 第二级：AI 深度分析（预筛通过或关键位命中时）
-                if should_analyze:
+            # 第二级：AI 深度分析（预筛通过或关键位命中时）
+            if should_analyze:
                     window_start = max(0, len(kline_data) - AI_ANALYSIS_MAX_WINDOW)
                     kline_window = kline_data[window_start:]
                     ctx.last_ai_kline_window = (window_start, len(kline_data) - 1)

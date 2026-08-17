@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { Table, Tag, Button, Space, Typography, Popconfirm, message } from 'antd';
-import { EyeOutlined, StopOutlined, MinusCircleOutlined } from '@ant-design/icons';
+import { EyeOutlined, StopOutlined, MinusCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { aiBacktestApi } from '@/api/ai-backtest';
@@ -25,6 +25,7 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
   const queryClient = useQueryClient();
   const [page, setPage] = React.useState(1);
   const [stoppingIds, setStoppingIds] = React.useState<Set<string>>(new Set());
+  const [deletingIds, setDeletingIds] = React.useState<Set<string>>(new Set());
 
   const { data, isLoading } = useQuery({
     queryKey: ['ai-backtest', 'history', page],
@@ -49,6 +50,26 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
       message.error(msg);
     } finally {
       setStoppingIds(prev => {
+        const next = new Set(prev);
+        next.delete(record.id);
+        return next;
+      });
+    }
+  }, [queryClient]);
+
+  const handleDelete = useCallback(async (record: AIBacktestHistoryItem) => {
+    setDeletingIds(prev => new Set(prev).add(record.id));
+    try {
+      await aiBacktestApi.remove(record.id);
+      message.success('已删除回测记录');
+      // 刷新列表
+      queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'history'] });
+      queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'detail'] });
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || '删除失败';
+      message.error(msg);
+    } finally {
+      setDeletingIds(prev => {
         const next = new Set(prev);
         next.delete(record.id);
         return next;
@@ -122,7 +143,7 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
     {
       title: '操作',
       key: 'actions',
-      width: 140,
+      width: 200,
       render: (_: any, record: AIBacktestHistoryItem) => (
         <Space>
           <Button
@@ -152,6 +173,27 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
                 loading={stoppingIds.has(record.id)}
               >
                 {record.status === 'pending' ? '取消' : '终止'}
+              </Button>
+            </Popconfirm>
+          )}
+          {/* 终态回测：显示删除按钮 */}
+          {record.status !== 'pending' && record.status !== 'running' && record.status !== 'cancelling' && (
+            <Popconfirm
+              title="确定要删除此回测记录吗？"
+              description="删除后交易明细、分析日志等数据将一并清除，且不可恢复。"
+              onConfirm={() => handleDelete(record)}
+              okText="确定删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              <Button
+                type="link"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                loading={deletingIds.has(record.id)}
+              >
+                删除
               </Button>
             </Popconfirm>
           )}

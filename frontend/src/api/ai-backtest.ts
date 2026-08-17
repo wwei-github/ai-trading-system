@@ -54,6 +54,10 @@ export const aiBacktestApi = {
   stop: (id: string) =>
     request.post(`/strategies/ai-backtest/${id}/stop`),
 
+  /** 删除回测记录（含交易明细、分析日志、Redis 缓存） */
+  remove: (id: string) =>
+    request.delete(`/strategies/ai-backtest/${id}`),
+
   /** AI 分析回测结果 */
   analyze: (id: string) =>
     request.post<AIBacktestAnalysisResult>(`/strategies/ai-backtest/${id}/analyze`),

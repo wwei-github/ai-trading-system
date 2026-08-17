@@ -253,6 +253,32 @@ class AIBacktestService:
             raise BadRequestException(message="只能取消待开始状态的回测")
         await self.db.delete(backtest)
 
+    async def delete_backtest(
+        self, backtest_id: uuid.UUID, user_id: uuid.UUID
+    ) -> None:
+        """删除回测记录（含交易明细、分析日志），并清理 Redis 缓存。
+
+        支持删除任何终态（completed / cancelled / failed）的回测。
+        """
+        backtest = await self._verify_ownership(backtest_id, user_id)
+        if backtest.status in ("running", "pending", "cancelling"):
+            raise BadRequestException(message="只能删除已完成的回测")
+
+        # 清理 Redis 缓存
+        try:
+            import redis as sync_redis
+            r = sync_redis.from_url(settings.REDIS_URL)
+            # 清除进度缓存
+            r.delete(f"ai-backtest-last-progress:{backtest_id}")
+            # 清除停止标志（如有残留）
+            r.delete(f"stop:ai-backtest:{backtest_id}")
+            r.close()
+        except Exception as e:
+            logger.warning(f"Failed to clean Redis cache: {e}")
+
+        # 级联删除（trades 通过 cascade="all, delete-orphan" 自动删除）
+        await self.db.delete(backtest)
+
     async def stop_backtest(
         self, backtest_id: uuid.UUID, user_id: uuid.UUID
     ) -> None:

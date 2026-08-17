@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Card, Row, Col, Statistic, Typography, Divider, Tag, Table, Space,
-  Button, Empty, message, Timeline, Rate, Collapse,
+  Button, Empty, message, Timeline, Rate, Collapse, Segmented, Pagination,
 } from 'antd';
 import {
   ArrowUpOutlined, ArrowDownOutlined, DownloadOutlined,
@@ -21,7 +21,7 @@ const DECISION_COLORS: Record<string, string> = {
   open_long: 'red', open_short: 'green', close_long: 'orange', close_short: 'orange', hold: 'default',
 };
 const TRIGGER_LABEL: Record<string, string> = {
-  precheck_pass: '预筛通过', key_level_hit: '关键位触发', position_closed: '平仓触发', initial: '初始化',
+  precheck_pass: '预筛通过', key_level_hit: '关键位触发', position_closed: '平仓触发', initial: '初始化', skipped: '跳过',
 };
 
 interface Props {
@@ -32,9 +32,13 @@ interface Props {
   page?: number;
 }
 
-const getTimelineColor = (trigger: AIAnalysisLogItem['trigger']): string => {
-  if (trigger === 'key_level_hit') return 'magenta';
-  if (trigger === 'position_closed') return 'orange';
+const PAGE_SIZE = 50;
+
+const getTimelineColor = (log: AIAnalysisLogItem): string => {
+  if (log.skipped) return 'gray';
+  if (log.precheck) return 'cyan';
+  if (log.trigger === 'key_level_hit') return 'magenta';
+  if (log.trigger === 'position_closed') return 'orange';
   return 'blue';
 };
 
@@ -43,6 +47,8 @@ export const AIBacktestResult: React.FC<Props> = ({
 }) => {
   const [selectedTrade, setSelectedTrade] = useState<AIBacktestTrade | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [logFilter, setLogFilter] = useState<string>('analysis');
+  const [logPage, setLogPage] = useState(1);
 
   if (!detail) {
     return <Empty description="暂无回测结果" />;
@@ -54,6 +60,16 @@ export const AIBacktestResult: React.FC<Props> = ({
   const precheckTotal = detail.precheck_total ?? 0;
   const precheckTriggered = detail.precheck_triggered ?? 0;
   const savedCalls = Math.max(0, precheckTotal - precheckTriggered);
+
+  // 过滤日志：仅分析 / 全部
+  const analysisLogs = aiAnalysisLogs.filter((l) => !l.skipped);
+  const filteredLogs = logFilter === 'analysis'
+    ? analysisLogs
+    : aiAnalysisLogs;
+  const paginatedLogs = filteredLogs.slice(
+    (logPage - 1) * PAGE_SIZE, logPage * PAGE_SIZE,
+  );
+  const totalLogPages = Math.ceil(filteredLogs.length / PAGE_SIZE);
 
   return (
     <div>
@@ -80,103 +96,140 @@ export const AIBacktestResult: React.FC<Props> = ({
         </Space>
       </Card>
 
-      {/* AI 分析日志时间线（增强版，展示完整分析内容） */}
+      {/* AI 分析日志时间线（含跳过记录，支持过滤和分页） */}
       {aiAnalysisLogs.length > 0 && (
-        <Card size="small" title="AI 分析日志" style={{ marginBottom: 16 }}>
-          <Timeline
-            items={aiAnalysisLogs.map((log, logIdx) => {
-              const a = log.analysis || {};
-              const hasContent = a.summary || a.reasoning || a.stop_loss_method;
-              return {
-                color: getTimelineColor(log.trigger),
-                children: (
-                  <div>
-                    <Space wrap style={{ marginBottom: 4 }}>
-                      <Tag>K线 #{log.kline_index}</Tag>
-                      <Tag color={getTimelineColor(log.trigger)}>
-                        {TRIGGER_LABEL[log.trigger] || log.trigger}
-                      </Tag>
-                      {log.trigger_reason && (
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {log.trigger_reason}
-                        </Text>
-                      )}
-                      {a.decision && (
-                        <Tag color={DECISION_COLORS[a.decision] || 'default'}>
-                          {DECISION_LABEL[a.decision] || a.decision}
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {/* 统计信息 + 过滤切换 */}
+            <Space wrap>
+              <Text strong>AI 分析日志</Text>
+              <Tag color="blue">AI分析 {analysisLogs.length} 次</Tag>
+              <Tag color="default">跳过 {aiAnalysisLogs.length - analysisLogs.length} 次</Tag>
+              <Segmented
+                size="small"
+                value={logFilter}
+                onChange={(val) => { setLogFilter(val as string); setLogPage(1); }}
+                options={[
+                  { label: `仅AI分析 (${analysisLogs.length})`, value: 'analysis' },
+                  { label: `全部 (${aiAnalysisLogs.length})`, value: 'all' },
+                ]}
+              />
+            </Space>
+
+            {/* 时间线（分页显示） */}
+            <Timeline
+              items={paginatedLogs.map((log, logIdx) => {
+                const a = log.analysis || {};
+                const hasContent = a.summary || a.reasoning || a.stop_loss_method;
+                const isSkipped = log.skipped;
+                return {
+                  color: isSkipped ? 'gray' : getTimelineColor(log),
+                  children: (
+                    <div>
+                      <Space wrap style={{ marginBottom: 4 }}>
+                        <Tag>K线 #{log.kline_index}</Tag>
+                        <Tag color={isSkipped ? 'default' : getTimelineColor(log)}>
+                          {TRIGGER_LABEL[log.trigger] || log.trigger}
                         </Tag>
-                      )}
-                      {a.confidence != null && (
-                        <Rate
-                          disabled
-                          allowHalf
-                          value={a.confidence / 20}
-                          style={{ fontSize: 12 }}
-                        />
-                      )}
-                    </Space>
-                    {/* 关键位 */}
-                    {a.key_levels && a.key_levels.length > 0 && (
-                      <Space wrap style={{ marginBottom: 4 }}>
-                        {a.key_levels.map((lvl: any, idx: number) => (
-                          <Tag key={idx} color={lvl.type === 'support' ? 'green' : 'red'}>
-                            {lvl.type === 'support' ? '支撑' : '阻力'}: {lvl.price}
+                        {log.trigger_reason && (
+                          <Text type="secondary" style={{ fontSize: 12 }}>
+                            {log.trigger_reason}
+                          </Text>
+                        )}
+                        {isSkipped && log.had_position && (
+                          <Tag color="orange">持仓中</Tag>
+                        )}
+                        {!isSkipped && a.decision && (
+                          <Tag color={DECISION_COLORS[a.decision] || 'default'}>
+                            {DECISION_LABEL[a.decision] || a.decision}
                           </Tag>
-                        ))}
+                        )}
+                        {!isSkipped && a.confidence != null && (
+                          <Rate
+                            disabled
+                            allowHalf
+                            value={a.confidence / 20}
+                            style={{ fontSize: 12 }}
+                          />
+                        )}
                       </Space>
-                    )}
-                    {/* 止损止盈信息 */}
-                    {(a.stop_loss || a.take_profit) && (
-                      <Space wrap style={{ marginBottom: 4 }}>
-                        {a.stop_loss && <Text type="danger" style={{ fontSize: 12 }}>止损: {a.stop_loss}</Text>}
-                        {a.take_profit && <Text type="success" style={{ fontSize: 12 }}>止盈: {a.take_profit}</Text>}
-                        {a.stop_loss_method && <Text type="secondary" style={{ fontSize: 12 }}>方式: {a.stop_loss_method}</Text>}
-                        {a.risk_reward_ratio && <Text type="secondary" style={{ fontSize: 12 }}>盈亏比: {a.risk_reward_ratio}</Text>}
-                      </Space>
-                    )}
-                    {/* 分析总结内容 - 可折叠 */}
-                    {hasContent && (
-                      <Collapse
-                        ghost
-                        size="small"
-                        items={[
-                          {
-                            key: logIdx,
-                            label: <Text type="secondary" style={{ fontSize: 12 }}>查看完整分析</Text>,
-                            children: (
-                              <div style={{ fontSize: 12 }}>
-                                {a.summary && (
-                                  <div style={{ marginBottom: 8 }}>
-                                    <Text strong>分析摘要: </Text>
-                                    <Paragraph type="secondary" style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>
-                                      {a.summary}
-                                    </Paragraph>
+                      {/* 非跳过：显示完整分析详情 */}
+                      {!isSkipped && (
+                        <>
+                          {a.key_levels && a.key_levels.length > 0 && (
+                            <Space wrap style={{ marginBottom: 4 }}>
+                              {a.key_levels.map((lvl: any, idx: number) => (
+                                <Tag key={idx} color={lvl.type === 'support' ? 'green' : 'red'}>
+                                  {lvl.type === 'support' ? '支撑' : '阻力'}: {lvl.price}
+                                </Tag>
+                              ))}
+                            </Space>
+                          )}
+                          {(a.stop_loss || a.take_profit) && (
+                            <Space wrap style={{ marginBottom: 4 }}>
+                              {a.stop_loss && <Text type="danger" style={{ fontSize: 12 }}>止损: {a.stop_loss}</Text>}
+                              {a.take_profit && <Text type="success" style={{ fontSize: 12 }}>止盈: {a.take_profit}</Text>}
+                              {a.stop_loss_method && <Text type="secondary" style={{ fontSize: 12 }}>方式: {a.stop_loss_method}</Text>}
+                              {a.risk_reward_ratio && <Text type="secondary" style={{ fontSize: 12 }}>盈亏比: {a.risk_reward_ratio}</Text>}
+                            </Space>
+                          )}
+                          {hasContent && (
+                            <Collapse
+                              ghost
+                              size="small"
+                              items={[{
+                                key: logIdx,
+                                label: <Text type="secondary" style={{ fontSize: 12 }}>查看完整分析</Text>,
+                                children: (
+                                  <div style={{ fontSize: 12 }}>
+                                    {a.summary && (
+                                      <div style={{ marginBottom: 8 }}>
+                                        <Text strong>分析摘要: </Text>
+                                        <Paragraph type="secondary" style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>
+                                          {a.summary}
+                                        </Paragraph>
+                                      </div>
+                                    )}
+                                    {a.reasoning && (
+                                      <div style={{ marginBottom: 8 }}>
+                                        <Text strong>决策理由: </Text>
+                                        <Paragraph type="secondary" style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>
+                                          {a.reasoning}
+                                        </Paragraph>
+                                      </div>
+                                    )}
+                                    {a.trend && (
+                                      <Text type="secondary">
+                                        趋势: {a.trend === 'bullish' ? '看涨' : a.trend === 'bearish' ? '看跌' : '中性'}
+                                      </Text>
+                                    )}
                                   </div>
-                                )}
-                                {a.reasoning && (
-                                  <div style={{ marginBottom: 8 }}>
-                                    <Text strong>决策理由: </Text>
-                                    <Paragraph type="secondary" style={{ margin: '4px 0', whiteSpace: 'pre-wrap' }}>
-                                      {a.reasoning}
-                                    </Paragraph>
-                                  </div>
-                                )}
-                                {a.trend && (
-                                  <Text type="secondary">
-                                    趋势: {a.trend === 'bullish' ? '看涨' : a.trend === 'bearish' ? '看跌' : '中性'}
-                                  </Text>
-                                )}
-                              </div>
-                            ),
-                          },
-                        ]}
-                      />
-                    )}
-                  </div>
-                ),
-              };
-            })}
-          />
+                                ),
+                              }]} />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  ),
+                };
+              })}
+            />
+
+            {/* 分页控制 */}
+            {totalLogPages > 1 && (
+              <div style={{ textAlign: 'center', marginTop: 8 }}>
+                <Pagination
+                  size="small"
+                  current={logPage}
+                  total={filteredLogs.length}
+                  pageSize={PAGE_SIZE}
+                  showSizeChanger={false}
+                  showTotal={(t) => `共 ${t} 条`}
+                  onChange={(p) => setLogPage(p)}
+                />
+              </div>
+            )}
+          </Space>
         </Card>
       )}
 
