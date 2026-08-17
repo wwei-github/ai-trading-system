@@ -80,8 +80,17 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
   const columns = [
     {
       title: '策略',
-      dataIndex: 'strategy_name',
-      width: 150,
+      dataIndex: 'strategy_names',
+      width: 180,
+      render: (_: any, r: AIBacktestHistoryItem) => (
+        <Space direction="vertical" size={4}>
+          {r.strategy_names.map((name) => (
+            <Tag key={name} color="blue" style={{ margin: 0 }}>
+              {name}
+            </Tag>
+          ))}
+        </Space>
+      ),
     },
     {
       title: '交易对/周期',

@@ -256,6 +256,7 @@ export interface AIBacktestOptimizeResult {
 export interface AIBacktestHistoryItem {
   id: string;
   strategy_name: string;
+  strategy_names: string[];
   symbol: string;
   timeframe: string;
   status: string;

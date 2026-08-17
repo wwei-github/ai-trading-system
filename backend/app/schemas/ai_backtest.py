@@ -146,6 +146,9 @@ class AIBacktestListResponse(BaseModel):
 
     id: UUID
     strategy_name: str
+    strategy_names: List[str] = Field(
+        default_factory=list, description="多策略回测时所有策略名称列表"
+    )
     symbol: str
     timeframe: str
     status: str

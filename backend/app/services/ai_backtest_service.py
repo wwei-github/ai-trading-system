@@ -238,10 +238,30 @@ class AIBacktestService:
                 trade_count = bt.result_summary.get("total_trades", 0)
                 total_pnl = bt.result_summary.get("total_pnl")
                 win_rate = bt.result_summary.get("win_rate")
+
+            # 处理多策略名称
+            strategy_names: List[str] = []
+            raw_ids = bt.strategy_ids or []
+            if raw_ids:
+                # 从 strategy_ids 查询所有策略名称
+                try:
+                    ids = [uuid.UUID(s) if isinstance(s, str) else s for s in raw_ids]
+                    s_result = await self.db.execute(
+                        select(Strategy.name).where(Strategy.id.in_(ids))
+                    )
+                    strategy_names = [row[0] for row in s_result.all()]
+                except Exception:
+                    pass
+            if not strategy_names:
+                # 回退到主策略名称
+                main_name = bt.strategy.name if bt.strategy else "未知"
+                strategy_names = [main_name]
+
             items.append(
                 AIBacktestListResponse(
                     id=bt.id,
-                    strategy_name=bt.strategy.name if bt.strategy else "未知",
+                    strategy_name=strategy_names[0],
+                    strategy_names=strategy_names,
                     symbol=bt.symbol,
                     timeframe=bt.timeframe,
                     status=bt.status,
