@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Tabs, Card, message } from 'antd';
 import dayjs from 'dayjs';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -198,6 +198,9 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     }
   }, []);
 
+  const progressStageRef = useRef(progress?.stage);
+  progressStageRef.current = progress?.stage;
+
   const handleSSEDone = useCallback(() => {
     setIsRunning(false);
     setIsStopping(false);
@@ -226,13 +229,13 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     }
     localStorage.removeItem(LS_BACKTEST_ID);
     // 如果 progress 的 stage 是 pending，不切换到 result 页
-    if (progress?.stage === 'pending') {
+    if (progressStageRef.current === 'pending') {
       return;
     }
     queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'detail', currentBacktestId] });
     queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'trades', currentBacktestId] });
     queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'history'] });
-  }, [queryClient, currentBacktestId, progress?.stage]);
+  }, [queryClient, currentBacktestId]);
 
   const handleSSEError = useCallback(() => {
     // 不立即停止运行状态，SSE hook 会自动重连

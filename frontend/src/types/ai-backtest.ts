@@ -208,6 +208,8 @@ export interface AIBacktestProgress {
     rsi_14: number;
     ema20?: number;
     ema50?: number;
+    stoch_k?: number;
+    stoch_d?: number;
     volume_ma20?: number;
     close?: number;
   };
@@ -215,6 +217,11 @@ export interface AIBacktestProgress {
   // 新增：预筛统计
   precheck_total?: number;
   precheck_triggered?: number;
+  current_precheck?: {
+    trigger_type: string;
+    passed: boolean;
+    reason: string;
+  };
   ai_call_count?: number;
   precheck_mode?: string;
   has_position?: boolean;

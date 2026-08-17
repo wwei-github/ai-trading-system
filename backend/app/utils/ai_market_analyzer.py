@@ -108,12 +108,26 @@ AI_QUICK_PRECHECK_PROMPT = """你是一个技术分析预筛助手。请快速�
 - 只做粗略判断，不需要详细分析
 
 ### 输出要求：
-- reason 中必须**逐一列出每个策略**的判断结果，说明各自是否满足条件
-- 例如：策略A（满足：均线金叉）、策略B（不满足：RSI未超卖）、策略C（满足：价格突破前高）
-- 如果只有一个策略，直接说明该策略条件是否满足
+- reason 中必须**每个策略换一行**，逐一列出每个策略的判断结果，说明各自是否满足条件
+- 格式示例：
+  逐一检查所有策略：
+  策略A：
+       条件1:满足（均线金叉）
+       条件2:不满足（RSI未超卖）
+  策略B：
+       条件1:满足（RSI未超卖）
+       条件2:满足（价格突破前高）
+  策略C：
+       条件1:满足（价格突破前高）
+       条件2:满足（RSI未超卖）
+- 如果只有一个策略，换行说明该策略条件是否满足
+- 格式示例：
+  策略A：
+       条件1:满足（均线金叉）
+       条件2:不满足（RSI未超卖）
 
 仅输出 JSON 格式：
-{{"should_analyze": true/false, "reason": "判断理由（逐一列出每个策略的判断结果，说明各自是否满足条件）"}}
+{{"should_analyze": true/false, "reason": "判断理由（每个策略一行，逐一列出每个策略的判断结果）"}}
 
 注意：
 - 只输出JSON，不要输出其他文字
@@ -175,8 +189,12 @@ AI_ANALYSIS_WINDOW_PROMPT = """你是一个专业的加密货币交易AI助手�
 - 仓位大小（position_size_pct）必须遵循触发策略的仓位管理规则
 - 开仓理由（reason）必须：
   1. **逐一说明每个策略**是否满足入场条件及判断依据
-  2. 说明触发开仓的具体策略和规则条件
-  3. 总结为什么满足条件就可以开仓
+  2. **每个策略一行**，格式示例：
+     逐一检查所有策略：
+     策略A：满足（均线金叉）
+     策略B：不满足（RSI未超卖）
+  3. 说明触发开仓的具体策略和规则条件
+  4. 总结为什么满足条件就可以开仓
 
 ### 持仓管理：
 - 有持仓时，基于策略的出场规则（exit_rules）判断是否平仓
@@ -193,7 +211,7 @@ AI_ANALYSIS_WINDOW_PROMPT = """你是一个专业的加密货币交易AI助手�
   "source_strategy": "触发开仓的策略名称（如只有一个策略则留空，多个策略时必填）",
   "trade_plan": {{
     "action": "同上",
-    "reason": "理由（必须逐一说明每个策略是否满足入场条件及判断依据，说明触发开仓的具体策略和规则，总结为什么满足条件）",
+    "reason": "理由（每个策略一行，逐一说明各策略是否满足条件及判断依据，然后说明触发开仓的具体策略和规则，总结为什么满足条件）",
     "confidence": 4,
     "entry_price": 0,
     "quantity": 0,
@@ -395,6 +413,7 @@ class AIMarketAnalyzer:
         symbol: str,
         timeframe: str,
         multi_strategy_rules: List[Dict[str, Any]] = None,
+        computed_indicators: Dict[str, Any] = None,
     ) -> Tuple[bool, str]:
         """AI 粗略预筛：使用主 AI Provider 分析少量 K 线，判断是否满足策略入场条件。
 
@@ -403,6 +422,8 @@ class AIMarketAnalyzer:
             strategy_rules: 策略规则
             symbol: 交易对
             timeframe: K 线周期
+            multi_strategy_rules: 多策略规则列表
+            computed_indicators: 已计算的指标字典（来自 _calculate_indicators），用于补充指标摘要
 
         Returns:
             (passed, raw_response): 是否满足条件、原始 AI 响应文本
@@ -420,10 +441,14 @@ class AIMarketAnalyzer:
         highs = [k["high"] for k in kline_window]
         lows = [k["low"] for k in kline_window]
         volumes = [k.get("volume", 0) for k in kline_window]
+        ci = computed_indicators or {}
         indicators = (
             f"价格区间: {min(lows):.2f} - {max(highs):.2f}\n"
             f"涨跌幅: {((closes[-1] - closes[0]) / closes[0] * 100):.2f}%\n"
-            f"平均成交量: {sum(volumes) / len(volumes):.0f}"
+            f"平均成交量: {sum(volumes) / len(volumes):.0f}\n"
+            f"EMA50: {ci.get('ema50', 'N/A')}\n"
+            f"Stochastic%D: {ci.get('stoch_d', 'N/A')}\n"
+            f"Stochastic%K: {ci.get('stoch_k', 'N/A')}"
         )
 
         entry_rules = strategy_rules.get("entry_rules", [])
@@ -563,7 +588,10 @@ class AIMarketAnalyzer:
             f"MA5={indicators.get('ma5', 'N/A')}, "
             f"MA10={indicators.get('ma10', 'N/A')}, "
             f"EMA20={indicators.get('ema20', 'N/A')}, "
-            f"RSI(14)={indicators.get('rsi_14', 'N/A')}"
+            f"EMA50={indicators.get('ema50', 'N/A')}, "
+            f"RSI(14)={indicators.get('rsi_14', 'N/A')}, "
+            f"Stochastic%K={indicators.get('stoch_k', 'N/A')}, "
+            f"Stochastic%D={indicators.get('stoch_d', 'N/A')}"
         )
         # 格式化数值
         indicators_summary = self._format_indicator_value(indicators_summary, indicators)
@@ -598,14 +626,22 @@ class AIMarketAnalyzer:
         ma5 = indicators.get("ma5", "N/A")
         ma10 = indicators.get("ma10", "N/A")
         ema20 = indicators.get("ema20", "N/A")
+        ema50 = indicators.get("ema50", "N/A")
         rsi = indicators.get("rsi_14", "N/A")
+        stoch_k = indicators.get("stoch_k", "N/A")
+        stoch_d = indicators.get("stoch_d", "N/A")
         ma5_str = f"{ma5:.2f}" if isinstance(ma5, (int, float)) else str(ma5)
         ma10_str = f"{ma10:.2f}" if isinstance(ma10, (int, float)) else str(ma10)
         ema20_str = f"{ema20:.2f}" if isinstance(ema20, (int, float)) else str(ema20)
+        ema50_str = f"{ema50:.2f}" if isinstance(ema50, (int, float)) else str(ema50)
         rsi_str = f"{rsi:.1f}" if isinstance(rsi, (int, float)) else str(rsi)
+        stoch_k_str = f"{stoch_k:.1f}" if isinstance(stoch_k, (int, float)) else str(stoch_k)
+        stoch_d_str = f"{stoch_d:.1f}" if isinstance(stoch_d, (int, float)) else str(stoch_d)
         return (
             f"MA5={ma5_str}, MA10={ma10_str}, "
-            f"EMA20={ema20_str}, RSI(14)={rsi_str}"
+            f"EMA20={ema20_str}, EMA50={ema50_str}, "
+            f"RSI(14)={rsi_str}, "
+            f"Stochastic%K={stoch_k_str}, Stochastic%D={stoch_d_str}"
         )
 
     async def analyze_initial(

@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Form, InputNumber, Select, DatePicker, Switch, Button, Space,
   Card, Row, Col, Typography, Divider, Alert, Collapse, Tag, Radio,
+  Tooltip,
 } from 'antd';
 import {
   PlayCircleOutlined,
@@ -9,13 +10,99 @@ import {
   RobotOutlined,
   AppstoreAddOutlined,
   FileTextOutlined,
+  LineChartOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import type { AIBacktestConfig } from '@/types/ai-backtest';
 import { promptTemplateApi } from '@/api/ai-backtest';
+import { strategyApi } from '@/api/strategies';
 
 const { Text, Title } = Typography;
+
+// 指标中文名映射
+const INDICATOR_NAME_MAP: Record<string, string> = {
+  EMA50: 'EMA50',
+  EMA20: 'EMA20',
+  MA5: 'MA5',
+  MA10: 'MA10',
+  MA20: 'MA20',
+  'Stochastic%D': '随机指标 %D',
+  Stochastic: '随机指标',
+  stoch_k: '随机指标 %K',
+  stoch_d: '随机指标 %D',
+  CandlestickPattern: '蜡烛图形态',
+  RSI: 'RSI',
+  rsi_14: 'RSI(14)',
+  MACD: 'MACD',
+  BOLL: '布林带',
+  ATR: 'ATR',
+  Volume: '成交量',
+  volume_ma20: '成交量均线',
+  StopLoss: '止损',
+  TakeProfit: '止盈',
+};
+
+// 指标图标颜色（按类别区分）
+const INDICATOR_COLOR_MAP: Record<string, string> = {
+  EMA50: 'blue',
+  EMA20: 'blue',
+  MA5: 'blue',
+  MA10: 'blue',
+  MA20: 'blue',
+  'Stochastic%D': 'purple',
+  Stochastic: 'purple',
+  stoch_k: 'purple',
+  stoch_d: 'purple',
+  CandlestickPattern: 'orange',
+  RSI: 'cyan',
+  rsi_14: 'cyan',
+  MACD: 'geekblue',
+  BOLL: 'green',
+  ATR: 'red',
+  Volume: 'gold',
+  volume_ma20: 'gold',
+  StopLoss: 'red',
+  TakeProfit: 'green',
+};
+
+/** 从策略 rules 中提取所有使用的指标名称 */
+function extractIndicatorsFromRules(rules: Record<string, any>): string[] {
+  const indicators = new Set<string>();
+
+  const extractFromConditions = (conditions: any[]) => {
+    for (const cond of conditions || []) {
+      if (cond.indicator) {
+        indicators.add(cond.indicator);
+      }
+    }
+  };
+
+  // 从 entry_rules 提取
+  const entryRules = rules?.entry_rules || [];
+  for (const group of entryRules) {
+    extractFromConditions(group.conditions);
+  }
+
+  // 从 exit_rules 提取
+  const exitRules = rules?.exit_rules || [];
+  for (const group of exitRules) {
+    extractFromConditions(group.conditions);
+  }
+
+  // 兼容旧版 DSL 格式（condition_group 嵌套）
+  const entryConditionGroup = rules?.entry?.condition_group;
+  if (entryConditionGroup) {
+    extractFromConditions(entryConditionGroup.conditions);
+  }
+  const exitConditionGroup = rules?.exit;
+  if (exitConditionGroup) {
+    extractFromConditions(exitConditionGroup?.stop_loss?.conditions);
+    extractFromConditions(exitConditionGroup?.take_profit?.conditions);
+  }
+
+  return Array.from(indicators);
+}
 
 interface Props {
   config: AIBacktestConfig;
@@ -69,6 +156,57 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
 
   const isMulti = config.backtestMode === 'multi';
   const useLocal = config.useLocalModel === true;
+
+  // 策略匹配的指标列表
+  const [strategyIndicators, setStrategyIndicators] = useState<Record<string, string[]>>({});
+
+  // 选中策略时自动提取指标
+  useEffect(() => {
+    const fetchIndicators = async () => {
+      const ids = isMulti
+        ? (config.strategyIds || [])
+        : (config.strategyId ? [config.strategyId] : []);
+
+      if (ids.length === 0) {
+        setStrategyIndicators({});
+        return;
+      }
+
+      // 只获取新增的或尚未缓存的策略
+      const toFetch = ids.filter(id => !strategyIndicators[id]);
+      if (toFetch.length === 0 && Object.keys(strategyIndicators).length === ids.length) {
+        return; // 全部已缓存
+      }
+
+      const result: Record<string, string[]> = { ...strategyIndicators };
+      for (const id of toFetch) {
+        try {
+          const res = await strategyApi.getDetail(id);
+          const strategy = res as any;
+          const rules = strategy.rules || {};
+          result[id] = extractIndicatorsFromRules(rules);
+        } catch (e) {
+          console.error(`获取策略详情失败: ${id}`, e);
+          result[id] = [];
+        }
+      }
+      setStrategyIndicators(result);
+    };
+
+    fetchIndicators();
+  }, [config.strategyId, config.strategyIds, isMulti]);
+
+  // 获取当前选中策略的指标展示数据
+  const currentIndicatorList = (() => {
+    const ids = isMulti ? (config.strategyIds || []) : (config.strategyId ? [config.strategyId] : []);
+    const result: Array<{ strategyId: string; strategyName: string; indicators: string[] }> = [];
+    for (const id of ids) {
+      const name = (strategies || []).find(s => s.id === id)?.name || id;
+      const indicators = strategyIndicators[id] || [];
+      result.push({ strategyId: id, strategyName: name, indicators });
+    }
+    return result;
+  })();
 
   const prefilterAlertProps = useLocal
     ? {
@@ -213,6 +351,47 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
               options={(strategies || []).map(s => ({ label: s.name, value: s.id }))}
             />
           </Form.Item>
+        )}
+
+        {/* 策略匹配指标展示 */}
+        {currentIndicatorList.length > 0 && (
+          <Card
+            size="small"
+            style={{ marginBottom: 16, background: '#fafafa' }}
+            title={
+              <Space>
+                <LineChartOutlined />
+                <span>策略匹配指标</span>
+                <Tag color="green" style={{ marginLeft: 4 }}>
+                  已匹配
+                </Tag>
+              </Space>
+            }
+          >
+            {currentIndicatorList.map(item => (
+              <div key={item.strategyId} style={{ marginBottom: item.indicators.length > 0 ? 8 : 0 }}>
+                <Text strong style={{ fontSize: 13 }}>{item.strategyName}</Text>
+                {item.indicators.length > 0 ? (
+                  <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {item.indicators.map(ind => (
+                      <Tooltip key={ind} title={`策略条件中使用: ${ind}`}>
+                        <Tag
+                          color={INDICATOR_COLOR_MAP[ind] || 'default'}
+                          style={{ fontSize: 12, padding: '0 8px' }}
+                        >
+                          {INDICATOR_LABEL_MAP[ind] || ind}
+                        </Tag>
+                      </Tooltip>
+                    ))}
+                  </div>
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    暂未解析到指标信息
+                  </Text>
+                )}
+              </div>
+            ))}
+          </Card>
         )}
 
         <Row gutter={16}>

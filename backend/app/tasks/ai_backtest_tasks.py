@@ -555,23 +555,29 @@ async def _run_backtest_async(backtest_id: str):
                         precheck_response = ""
                         if ctx.use_local_model and local_prechecker:
                             # 模式 B：本地模型预筛
-                            local_window = kline_data[-ctx.local_model_klines:]
+                            # 限制最小K线数为5，单根K线太少无法判断
+                            precheck_klines = max(5, ctx.local_model_klines)
+                            local_window = kline_data[-min(precheck_klines, len(kline_data)):]
                             precheck_passed, precheck_response = await local_prechecker.precheck(
                                 kline_window=local_window,
                                 strategy_rules=ctx.strategy_rules,
                                 symbol=ctx.symbol,
                                 timeframe=ctx.timeframe,
+                                computed_indicators=indicators,
                             )
                             ctx.last_trigger_reason = "local_model" if precheck_passed else None
                         else:
                             # 模式 A（默认）：主 AI 粗略预筛
-                            quick_window = kline_data[-min(ctx.local_model_klines, len(kline_data)):]
+                            # 限制最小K线数为5，单根K线太少无法判断
+                            precheck_klines = max(5, ctx.local_model_klines)
+                            quick_window = kline_data[-min(precheck_klines, len(kline_data)):]
                             precheck_passed, precheck_response = await analyzer.quick_precheck(
                                 kline_window=quick_window,
                                 strategy_rules=ctx.strategy_rules,
                                 symbol=ctx.symbol,
                                 timeframe=ctx.timeframe,
                                 multi_strategy_rules=ctx.multi_strategy_rules,
+                                computed_indicators=indicators,
                             )
                             ctx.last_trigger_reason = "ai_precheck" if precheck_passed else None
 
@@ -691,6 +697,45 @@ async def _run_backtest_async(backtest_id: str):
                 ctx.ai_analysis_paused = False
                 logger.info(f"Position closed, resuming AI analysis at kline {idx+1}")
 
+            # 构建当前预筛结果（用于 SSE 实时推送）
+            current_precheck = None
+            if had_position:
+                current_precheck = {
+                    "trigger_type": "holding",
+                    "passed": False,
+                    "reason": "持仓中，跳过预筛",
+                }
+            elif not ctx.use_ai_real:
+                current_precheck = {
+                    "trigger_type": "ai_disabled",
+                    "passed": False,
+                    "reason": "AI已降级为规则引擎，仅处理平仓/止损",
+                }
+            elif ctx.last_trigger_reason and "key_level_hit" in str(ctx.last_trigger_reason):
+                current_precheck = {
+                    "trigger_type": "key_level_hit",
+                    "passed": True,
+                    "reason": f"命中关键位[{ctx.last_trigger_reason.split(':')[-1]}]，跳过预筛直接进入深度分析",
+                }
+            elif should_analyze and ctx.last_trigger_reason in ("ai_precheck", "local_model"):
+                current_precheck = {
+                    "trigger_type": ctx.last_trigger_reason,
+                    "passed": True,
+                    "reason": f"预筛通过（{ctx.last_trigger_reason}），进入深度分析",
+                }
+            elif not should_analyze and ctx.use_ai_real:
+                current_precheck = {
+                    "trigger_type": "skipped",
+                    "passed": False,
+                    "reason": "预筛未通过，跳过AI分析",
+                }
+            else:
+                current_precheck = {
+                    "trigger_type": "none",
+                    "passed": False,
+                    "reason": "无预筛操作",
+                }
+
             # 更新进度（每根 K 线都推，确保实时性）
             progress = 5 + int((idx + 1) / ctx.total_klines * 90)
             current_stage_detail = "suspended"
@@ -709,6 +754,8 @@ async def _run_backtest_async(backtest_id: str):
                     "rsi_14": indicators.get("rsi_14"),
                     "ema20": indicators.get("ema20"),
                     "ema50": indicators.get("ema50"),
+                    "stoch_k": indicators.get("stoch_k"),
+                    "stoch_d": indicators.get("stoch_d"),
                     "volume_ma20": indicators.get("volume_ma20"),
                     "close": kline.get("close"),
                 },
@@ -723,6 +770,7 @@ async def _run_backtest_async(backtest_id: str):
                 has_position=ctx.current_position is not None,
                 current_equity=ctx.current_equity,
                 close_price=kline.get("close"),
+                current_precheck=current_precheck,
             )
 
         # 8. 生成总结
@@ -853,6 +901,7 @@ def _publish_progress(
     initial_analysis: Optional[Dict] = None,
     has_position: bool = False,
     current_equity: Optional[float] = None,
+    current_precheck: Optional[Dict] = None,
 ):
     """推送进度到 Redis Pub/Sub。
 
@@ -888,6 +937,8 @@ def _publish_progress(
             payload["indicators"] = indicators
         if close_price is not None:
             payload["close_price"] = close_price
+        if current_precheck is not None:
+            payload["current_precheck"] = current_precheck
 
         channel = f"ai-backtest-progress:{backtest_id}"
         r = sync_redis.from_url(settings.REDIS_URL)
@@ -967,56 +1018,60 @@ def _fetch_preheat_klines(ctx: AIBacktestContext) -> List[Dict]:
     return _fetch_klines(ctx.symbol, ctx.timeframe, preheat_start, PREHEAT_COUNT)
 
 
-def _ema(values: np.ndarray, period: int) -> float:
-    """计算指数移动平均。"""
-    if len(values) < period:
-        return float(values[-1])
-    alpha = 2 / (period + 1)
-    result = float(values[0])
-    for v in values[1:]:
-        result = alpha * v + (1 - alpha) * result
-    return result
-
-
 def _calculate_indicators(klines: List[Dict]) -> Dict[str, Any]:
-    """计算技术指标。"""
+    """计算技术指标（使用 indicators.py 统一计算引擎）。"""
     closes = np.array([k["close"] for k in klines])
     highs = np.array([k["high"] for k in klines])
     lows = np.array([k["low"] for k in klines])
     volumes = np.array([k.get("volume", 0) for k in klines])
-
     n = len(closes)
-    indicators = {}
 
-    # SMA（简单移动平均）
-    indicators["ma5"] = float(np.mean(closes[-5:])) if n >= 5 else float(closes[-1])
-    indicators["ma10"] = float(np.mean(closes[-10:])) if n >= 10 else float(closes[-1])
-    indicators["ma20"] = float(np.mean(closes[-20:])) if n >= 20 else float(closes[-1])
+    # 转换为 indicators.py 需要的格式: [[ts, o, h, l, c, v], ...]
+    ohlcv = [[
+        k["timestamp"], k["open"], k["high"], k["low"], k["close"],
+        k.get("volume", 0),
+    ] for k in klines]
 
-    # EMA（指数移动平均）- 策略常用指标
-    indicators["ema20"] = _ema(closes, 20) if n >= 20 else float(closes[-1])
-    indicators["ema50"] = _ema(closes, 50) if n >= 50 else float(closes[-1])
+    from app.utils.indicators import calculate_indicators
+    all_indicators = calculate_indicators(
+        ohlcv,
+        indicator_types=["ma", "ema", "rsi", "kdj", "macd", "boll", "atr"],
+        params={
+            "ema": {"periods": [20, 50]},
+            "kdj": {"period": 14},
+        },
+    )
+
+    indicators: Dict[str, Any] = {}
+
+    # MA（简单移动平均）
+    ma_data = all_indicators.get("ma", {})
+    for key in ("ma5", "ma10", "ma20"):
+        val = ma_data.get(key)
+        indicators[key] = float(val) if val is not None else float(closes[-1])
+
+    # EMA（指数移动平均）
+    ema_data = all_indicators.get("ema", {})
+    for key in ("ema20", "ema50"):
+        val = ema_data.get(key)
+        indicators[key] = float(val) if val is not None else float(closes[-1])
 
     # RSI 14
-    if n >= 15:
-        deltas = np.diff(closes)
-        gains = np.where(deltas > 0, deltas, 0)
-        losses = np.where(deltas < 0, -deltas, 0)
-        avg_gain = np.mean(gains[-14:])
-        avg_loss = np.mean(losses[-14:])
-        if avg_loss == 0:
-            rsi = 100.0
-        else:
-            rs = avg_gain / avg_loss
-            rsi = 100 - (100 / (1 + rs))
-        indicators["rsi_14"] = float(rsi)
-    else:
-        indicators["rsi_14"] = 50.0
+    rsi_data = all_indicators.get("rsi", {})
+    rsi_val = rsi_data.get("rsi")
+    indicators["rsi_14"] = float(rsi_val) if rsi_val is not None else 50.0
 
-    # 成交量均线
+    # Stochastic %K / %D（对应策略中的 Stochastic%D）
+    kdj_data = all_indicators.get("kdj", {})
+    k_val = kdj_data.get("k")
+    d_val = kdj_data.get("d")
+    indicators["stoch_k"] = float(k_val) if k_val is not None else 50.0
+    indicators["stoch_d"] = float(d_val) if d_val is not None else 50.0
+
+    # 成交量均线（indicators.py 没有 volume 的 MA，保持手动计算）
     indicators["volume_ma20"] = float(np.mean(volumes[-20:])) if n >= 20 else float(np.mean(volumes))
 
-    # 关键水平
+    # 关键水平（手动计算）
     indicators["support"] = [float(np.min(lows[-20:]))] if n >= 20 else [float(np.min(lows))]
     indicators["resistance"] = [float(np.max(highs[-20:]))] if n >= 20 else [float(np.max(highs))]
 

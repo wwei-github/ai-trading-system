@@ -54,6 +54,7 @@ class LocalModelPrechecker:
         strategy_rules: Dict[str, Any],
         symbol: str,
         timeframe: str,
+        computed_indicators: Dict[str, Any] = None,
     ) -> Tuple[bool, str]:
         """本地模型预筛。
 
@@ -81,10 +82,14 @@ class LocalModelPrechecker:
         highs = [k["high"] for k in kline_window]
         lows = [k["low"] for k in kline_window]
         volumes = [k.get("volume", 0) for k in kline_window]
+        ci = computed_indicators or {}
         indicators = (
             f"价格区间: {min(lows):.2f} - {max(highs):.2f}\n"
             f"涨跌幅: {((closes[-1] - closes[0]) / closes[0] * 100):.2f}%\n"
-            f"平均成交量: {sum(volumes) / len(volumes):.0f}"
+            f"平均成交量: {sum(volumes) / len(volumes):.0f}\n"
+            f"EMA50: {ci.get('ema50', 'N/A')}\n"
+            f"Stochastic%D: {ci.get('stoch_d', 'N/A')}\n"
+            f"Stochastic%K: {ci.get('stoch_k', 'N/A')}"
         )
 
         # 提取入场规则

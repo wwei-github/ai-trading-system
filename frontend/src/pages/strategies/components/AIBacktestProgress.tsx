@@ -54,6 +54,25 @@ const TRIGGER_REASON_MAP: Record<string, { label: string; color: string }> = {
   initial: { label: '初始分析', color: 'purple' },
 };
 
+const PRECHECK_TRIGGER_LABEL: Record<string, string> = {
+  holding: '持仓中',
+  ai_disabled: 'AI降级',
+  key_level_hit: '关键位命中',
+  ai_precheck: 'AI预筛',
+  local_model: '本地模型',
+  skipped: '预筛跳过',
+  none: '无操作',
+};
+const PRECHECK_TRIGGER_COLORS: Record<string, string> = {
+  holding: 'orange',
+  ai_disabled: 'red',
+  key_level_hit: 'magenta',
+  ai_precheck: 'blue',
+  local_model: 'cyan',
+  skipped: 'default',
+  none: 'default',
+};
+
 interface Props {
   progress: AIBacktestProgressType | null;
   aiAnalysis?: AIBacktestAIAnalysis | null;
@@ -128,6 +147,12 @@ export const AIBacktestProgress: React.FC<Props> = ({
               suffix="次"
               valueStyle={{ color: '#1677ff' }}
             />
+            <Statistic
+              title="预筛触发"
+              value={`${progress.precheck_triggered ?? 0} / ${progress.precheck_total ?? 0}`}
+              suffix="次"
+              valueStyle={{ color: (progress.precheck_triggered ?? 0) > 0 ? '#52c41a' : '#8c8c8c' }}
+            />
             {currentEquity > 0 && (
               <Statistic
                 title="当前权益"
@@ -172,6 +197,8 @@ export const AIBacktestProgress: React.FC<Props> = ({
             <Text>EMA20: {progress.indicators.ema20?.toFixed(2) || '-'}</Text>
             <Text>EMA50: {progress.indicators.ema50?.toFixed(2) || '-'}</Text>
             <Text>RSI14: {progress.indicators.rsi_14?.toFixed(1) || '-'}</Text>
+            <Text>Stoch%K: {progress.indicators.stoch_k?.toFixed(1) || '-'}</Text>
+            <Text>Stoch%D: {progress.indicators.stoch_d?.toFixed(1) || '-'}</Text>
             <Text>VolMA20: {progress.indicators.volume_ma20 ? (progress.indicators.volume_ma20 / 1000).toFixed(0) + 'K' : '-'}</Text>
           </Space>
         </Card>
@@ -219,6 +246,26 @@ export const AIBacktestProgress: React.FC<Props> = ({
             </Text>
             <Text type="secondary" style={{ fontSize: 12 }}>
               （最新K线收盘价）
+            </Text>
+          </Space>
+        </Card>
+      )}
+
+      {/* 当前预筛结果 */}
+      {progress.current_precheck && progress.stage === 'running' && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space>
+            <Text strong>当前预筛: </Text>
+            {progress.current_precheck.passed ? (
+              <Tag color="green">触发</Tag>
+            ) : (
+              <Tag color="default">未触发</Tag>
+            )}
+            <Tag color={PRECHECK_TRIGGER_COLORS[progress.current_precheck.trigger_type] || 'default'}>
+              {PRECHECK_TRIGGER_LABEL[progress.current_precheck.trigger_type] || progress.current_precheck.trigger_type}
+            </Tag>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {progress.current_precheck.reason}
             </Text>
           </Space>
         </Card>
@@ -411,18 +458,37 @@ export const AIBacktestProgress: React.FC<Props> = ({
                   lineHeight: 2,
                 }}
               >
-                {aiAnalysis.reason.split('\n').map((line, i) => {
-                  // 区分满足/不满足的策略行
-                  const isSatisfied = line.includes('满足') && !line.includes('不满足');
-                  const isNotSatisfied = line.includes('不满足');
-                  return (
-                    <div key={i} style={{ color: isNotSatisfied ? '#999' : 'inherit' }}>
-                      {isSatisfied && <span style={{ color: '#52c41a', marginRight: 4 }}>✓</span>}
-                      {isNotSatisfied && <span style={{ color: '#ff4d4f', marginRight: 4 }}>✗</span>}
-                      {line}
-                    </div>
-                  );
-                })}
+                {(() => {
+                  // 按换行拆分，如果行数太少，尝试按其他分隔符拆分
+                  let lines = aiAnalysis.reason.split('\n').filter(l => l.trim());
+                  if (lines.length <= 1) {
+                    // 尝试按中文顿号、句号、分号拆分
+                    const parts = aiAnalysis.reason.split(/[、。；]/).filter(l => l.trim());
+                    if (parts.length > 1) {
+                      lines = parts.map(s => s.trim());
+                    }
+                  }
+                  return lines.map((line, i) => {
+                    // "逐一检查所有策略："作为标题行，不加✓/✗
+                    const isHeader = line.includes('逐一检查');
+                    if (isHeader) {
+                      return (
+                        <div key={i} style={{ fontWeight: 600, color: '#333', marginBottom: 4 }}>
+                          {line}
+                        </div>
+                      );
+                    }
+                    const isSatisfied = line.includes('满足') && !line.includes('不满足');
+                    const isNotSatisfied = line.includes('不满足');
+                    return (
+                      <div key={i} style={{ color: isNotSatisfied ? '#999' : 'inherit' }}>
+                        {isSatisfied && <span style={{ color: '#52c41a', marginRight: 4 }}>✓</span>}
+                        {isNotSatisfied && <span style={{ color: '#ff4d4f', marginRight: 4 }}>✗</span>}
+                        {line}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </div>
           )}
