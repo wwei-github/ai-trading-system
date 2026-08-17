@@ -1,35 +1,52 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  Card, Col, Row, Segmented, Space, Tag, Typography, Input, Select, Button,
-  Upload, Progress, Tree, List, Avatar, Skeleton, Form, message, Divider,
-  Modal, Spin, Tabs, Descriptions, Alert, Table,
+  Card,
+  Col,
+  Row,
+  Segmented,
+  Space,
+  Tag,
+  Typography,
+  Input,
+  Select,
+  Button,
+  Upload,
+  Progress,
+  Tree,
+  List,
+  Skeleton,
+  Form,
+  message,
+  Divider,
+  Modal,
+  Spin,
+  Tabs,
+  Descriptions,
+  Alert,
+  Table,
 } from 'antd';
 import type { UploadProps, TreeDataNode } from 'antd';
 import {
-  UploadOutlined, PlusOutlined, DeleteOutlined, LeftOutlined, RightOutlined,
-  SendOutlined, ReloadOutlined, BookOutlined, BulbOutlined,
-  QuestionCircleOutlined, LoadingOutlined,
+  UploadOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+  LeftOutlined,
+  RightOutlined,
+  BookOutlined,
+  ReloadOutlined,
+  BulbOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import { PageContainer, EmptyState, ConfirmButton, CrudModal } from '@/components/Common';
 import { bookApi, strategyApi } from '@/api';
-import type {
-  Book, BookCreateData, ParseStatus, BookQAResponse, BookAnalyzeResult,
-} from '@/types';
+import type { Book, BookCreateData, ParseStatus, BookAnalyzeResult } from '@/types';
 import dayjs from 'dayjs';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
-type ReaderMode = 'reader' | 'knowledge' | 'qa';
 type FontSize = 'small' | 'medium' | 'large';
-
-interface QAMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  sources?: BookQAResponse['sources'];
-}
 
 const CATEGORY_OPTIONS = [
   { label: '全部类别', value: undefined },
@@ -78,14 +95,11 @@ const BooksPage = () => {
   const [parseStatus, setParseStatus] = useState<ParseStatus | undefined>(undefined);
 
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
-  const [readerMode, setReaderMode] = useState<ReaderMode>('reader');
+  const [readerMode, setReaderMode] = useState<'reader'>('reader');
   const [fontSize, setFontSize] = useState<FontSize>('medium');
   const [currentChapterOrder, setCurrentChapterOrder] = useState<number>(1);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
-
-  const [qaInput, setQaInput] = useState('');
-  const [qaMessages, setQaMessages] = useState<QAMessage[]>([]);
 
   // AI 分析相关状态
   const [analyzeModalOpen, setAnalyzeModalOpen] = useState(false);
@@ -232,19 +246,6 @@ const BooksPage = () => {
     },
   });
 
-  const qaMutation = useMutation({
-    mutationFn: (params: { bookId: string; question: string }) =>
-      bookApi.qa(params.bookId, params.question),
-    onSuccess: (res, vars) => {
-      const userMsg: QAMessage = { id: generateId(), role: 'user', content: vars.question };
-      const assistantMsg: QAMessage = {
-        id: generateId(), role: 'assistant', content: res.answer, sources: res.sources,
-      };
-      setQaMessages((prev) => [...prev, userMsg, assistantMsg]);
-    },
-    onError: () => message.error('问答失败'),
-  });
-
   const books = booksQ.data || [];
   const detail = bookDetailQ.data || selectedBook;
   const notes = notesQ.data || [];
@@ -285,7 +286,6 @@ const BooksPage = () => {
 
   const handleSelectBook = (book: Book) => {
     setSelectedBook(book);
-    setQaMessages([]);
     setCurrentChapterOrder(1);
     setReaderMode('reader');
   };
@@ -296,14 +296,6 @@ const BooksPage = () => {
 
   const handleNextChapter = () => {
     if (currentChapterOrder < chapters.length) setCurrentChapterOrder(currentChapterOrder + 1);
-  };
-
-  const handleSendQA = async () => {
-    if (!qaInput.trim() || !selectedBook) return;
-    const question = qaInput.trim();
-    setQaInput('');
-    setQaMessages((prev) => [...prev, { id: generateId(), role: 'user', content: question }]);
-    await qaMutation.mutateAsync({ bookId: selectedBook.id, question });
   };
 
   const handleAnalyze = () => {
@@ -371,7 +363,9 @@ const BooksPage = () => {
             danger
             title={`确认删除《${selectedBook.title}》？`}
             description="删除后书籍数据将无法恢复"
-            onConfirm={async () => { await deleteMutation.mutateAsync(selectedBook.id); }}
+            onConfirm={async () => {
+              await deleteMutation.mutateAsync(selectedBook.id);
+            }}
             disabled={deleteMutation.isPending}
           />
         ) : null
@@ -398,25 +392,38 @@ const BooksPage = () => {
               <Row gutter={8}>
                 <Col span={12}>
                   <Select
-                    style={{ width: '100%' }} placeholder="类别"
-                    value={category} onChange={setCategory}
-                    options={CATEGORY_OPTIONS.filter((o) => o.value !== undefined).map((o) => ({ label: o.label, value: o.value }))}
+                    style={{ width: '100%' }}
+                    placeholder="类别"
+                    value={category}
+                    onChange={setCategory}
+                    options={CATEGORY_OPTIONS.filter((o) => o.value !== undefined).map((o) => ({
+                      label: o.label,
+                      value: o.value,
+                    }))}
                     allowClear
                   />
                 </Col>
                 <Col span={12}>
                   <Select
-                    style={{ width: '100%' }} placeholder="解析状态"
+                    style={{ width: '100%' }}
+                    placeholder="解析状态"
                     value={parseStatus}
                     onChange={(v) => setParseStatus(v as ParseStatus | undefined)}
-                    options={PARSE_STATUS_OPTIONS.filter((o) => o.value !== undefined).map((o) => ({ label: o.label, value: o.value }))}
+                    options={PARSE_STATUS_OPTIONS.filter((o) => o.value !== undefined).map((o) => ({
+                      label: o.label,
+                      value: o.value,
+                    }))}
                     allowClear
                   />
                 </Col>
               </Row>
               <Space>
                 <Upload {...uploadProps}>
-                  <Button icon={<UploadOutlined />} type="primary" loading={uploadMutation.isPending}>
+                  <Button
+                    icon={<UploadOutlined />}
+                    type="primary"
+                    loading={uploadMutation.isPending}
+                  >
                     上传书籍
                   </Button>
                 </Upload>
@@ -428,7 +435,7 @@ const BooksPage = () => {
 
             <Divider style={{ margin: '4px 0 12px' }} />
 
-            <div style={{ flex: 1, overflowY: 'auto', paddingRight: 4 }}>
+            <div style={{ height: 600, overflowY: 'auto', paddingRight: 4 }}>
               {booksQ.isLoading ? (
                 <List
                   dataSource={[1, 2, 3]}
@@ -445,39 +452,35 @@ const BooksPage = () => {
                   {books.map((book) => {
                     const isSelected = selectedBook?.id === book.id;
                     return (
-                      <Col xs={12} xl={24} key={book.id}>
+                      <Col xs={12} sm={12} md={12} lg={12} xl={12} key={book.id}>
                         <Card
                           hoverable
                           styles={{ body: { padding: 0 } }}
                           onClick={() => handleSelectBook(book)}
                           style={{
                             border: isSelected ? '2px solid #1677ff' : '1px solid #f0f0f0',
-                            borderRadius: 8, overflow: 'hidden', transition: 'all 0.2s',
+                            borderRadius: 8,
+                            overflow: 'hidden',
+                            transition: 'all 0.2s',
                           }}
                         >
                           {renderCover(book)}
                           <div style={{ padding: 12 }}>
-                            <Text
+                            <Typography.Text
                               strong
-                              style={{ display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 14, marginBottom: 4 }}
+                              ellipsis={{ tooltip: book.title }}
+                              style={{ fontSize: 14, display: 'block' }}
                             >
                               {book.title}
-                            </Text>
-                            <div style={{ marginBottom: 8, minHeight: 18 }}>
-                              <Text type="secondary" style={{ fontSize: 12 }}>
-                                {book.author || '未知作者'}
-                              </Text>
-                            </div>
-                            <Space size={4} wrap style={{ marginBottom: 8 }}>
-                              {book.category && <Tag color="blue" style={{ margin: 0 }}>{book.category}</Tag>}
+                            </Typography.Text>
+                            <Space size={4} wrap style={{ marginTop: 4, marginBottom: 0 }}>
+                              {book.category && (
+                                <Tag color="blue" style={{ margin: 0 }}>
+                                  {book.category}
+                                </Tag>
+                              )}
                               {parseStatusTag(book.parse_status)}
                             </Space>
-                            <Progress
-                              percent={Math.round(book.progress * 100)}
-                              size="small"
-                              strokeColor="#1677ff"
-                              style={{ margin: 0 }}
-                            />
                           </div>
                         </Card>
                       </Col>
@@ -492,7 +495,12 @@ const BooksPage = () => {
         <Col xs={24} xl={16}>
           <Card
             styles={{ body: { padding: 0 } }}
-            style={{ height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column' }}
+            style={{
+              height: 'calc(100vh - 160px)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
           >
             {!selectedBook ? (
               <EmptyState
@@ -506,7 +514,9 @@ const BooksPage = () => {
                   style={{
                     padding: '12px 24px',
                     borderBottom: '1px solid #f0f0f0',
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
                 >
                   <div>
@@ -522,26 +532,48 @@ const BooksPage = () => {
                           </Text>
                           {detail?.parse_status === 'parsing' && (
                             <Tag icon={<LoadingOutlined />} color="processing">
-                              解析中 {parseProgressData?.progress ? `${Math.round(parseProgressData.progress)}%` : ''}
+                              解析中{' '}
+                              {parseProgressData?.progress
+                                ? `${Math.round(parseProgressData.progress)}%`
+                                : ''}
                             </Tag>
                           )}
-                          {detail?.parse_status === 'completed' && <Tag color="success">已解析</Tag>}
+                          {detail?.parse_status === 'completed' && (
+                            <Tag color="success">已解析</Tag>
+                          )}
                           {detail?.parse_status === 'failed' && <Tag color="error">解析失败</Tag>}
                         </Space>
                       </div>
                       <Space>
                         {detail?.parse_status === 'completed' && (
                           <>
-                            <Button type="primary" icon={<BulbOutlined />} onClick={handleAnalyze} loading={analyzeMutation.isPending}>
+                            <Button
+                              type="primary"
+                              icon={<BulbOutlined />}
+                              onClick={handleAnalyze}
+                              loading={analyzeMutation.isPending}
+                            >
                               AI 分析生成策略
                             </Button>
-                            <Button icon={<ReloadOutlined />} onClick={() => selectedBook && reparseMutation.mutate(selectedBook.id)} loading={reparseMutation.isPending} size="small">
+                            <Button
+                              icon={<ReloadOutlined />}
+                              onClick={() =>
+                                selectedBook && reparseMutation.mutate(selectedBook.id)
+                              }
+                              loading={reparseMutation.isPending}
+                              size="small"
+                            >
                               重新解析
                             </Button>
                           </>
                         )}
                         {detail?.parse_status === 'failed' && (
-                          <Button icon={<ReloadOutlined />} onClick={() => selectedBook && parseMutation.mutate(selectedBook.id)} loading={parseMutation.isPending} size="small">
+                          <Button
+                            icon={<ReloadOutlined />}
+                            onClick={() => selectedBook && parseMutation.mutate(selectedBook.id)}
+                            loading={parseMutation.isPending}
+                            size="small"
+                          >
                             重新解析
                           </Button>
                         )}
@@ -562,7 +594,8 @@ const BooksPage = () => {
                               {parseProgressData?.stage_description || '解析中...'}
                             </Text>
                             <Text type="secondary">
-                              章节: {parseProgressData?.parsed_chapters ?? 0}/{parseProgressData?.total_chapters ?? '?'}
+                              章节: {parseProgressData?.parsed_chapters ?? 0}/
+                              {parseProgressData?.total_chapters ?? '?'}
                             </Text>
                             <Text type="secondary">
                               知识块: {parseProgressData?.parsed_chunks ?? 0}
@@ -581,7 +614,10 @@ const BooksPage = () => {
                           description={detail?.parse_error_message || '请尝试重新解析'}
                           showIcon
                           action={
-                            <Button size="small" onClick={() => selectedBook && parseMutation.mutate(selectedBook.id)}>
+                            <Button
+                              size="small"
+                              onClick={() => selectedBook && parseMutation.mutate(selectedBook.id)}
+                            >
                               重新解析
                             </Button>
                           }
@@ -589,25 +625,34 @@ const BooksPage = () => {
                       </div>
                     )}
                   </div>
-
-                  <Segmented<ReaderMode>
-                    value={readerMode}
-                    onChange={setReaderMode}
-                    options={[
-                      { label: '📖 阅读', value: 'reader' },
-                      { label: '💡 知识点', value: 'knowledge' },
-                      { label: '❓ 问答', value: 'qa' },
-                    ]}
-                  />
                 </div>
 
                 {readerMode === 'reader' && (
-                  <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      flex: 1,
+                      overflow: 'hidden',
+                      minHeight: 0,
+                    }}
+                  >
                     {detail?.parse_status !== 'completed' ? (
-                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
                         <EmptyState
                           height={300}
-                          description={detail?.parse_status === 'parsing' ? '正在解析中，请稍候...' : '请先解析书籍内容'}
+                          description={
+                            detail?.parse_status === 'parsing'
+                              ? '正在解析中，请稍候...'
+                              : '请先解析书籍内容'
+                          }
                           image={<BookOutlined style={{ fontSize: 64, color: '#d9d9d9' }} />}
                         />
                       </div>
@@ -615,261 +660,158 @@ const BooksPage = () => {
                       <>
                         <div
                           style={{
-                            padding: '12px 24px', borderBottom: '1px solid #f0f0f0',
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+                            padding: '12px 24px',
+                            borderBottom: '1px solid #f0f0f0',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: 8,
                           }}
                         >
                           <Space>
-                            <Button icon={<LeftOutlined />} onClick={handlePrevChapter} disabled={currentChapterIndex <= 0} size="small">
+                            <Button
+                              icon={<LeftOutlined />}
+                              onClick={handlePrevChapter}
+                              disabled={currentChapterIndex <= 0}
+                              size="small"
+                            >
                               上一章
                             </Button>
                             <Text strong style={{ fontSize: fontSizeConf.title - 2 }}>
                               {currentChapter?.title || '加载中...'}
                             </Text>
-                            <Button icon={<RightOutlined />} onClick={handleNextChapter} disabled={currentChapterIndex >= chapters.length - 1} size="small">
+                            <Button
+                              icon={<RightOutlined />}
+                              onClick={handleNextChapter}
+                              disabled={currentChapterIndex >= chapters.length - 1}
+                              size="small"
+                            >
                               下一章
                             </Button>
                           </Space>
-                          <Segmented<FontSize> size="small" value={fontSize} onChange={setFontSize} options={FONT_SIZE_OPTIONS} />
+                          <Segmented<FontSize>
+                            size="small"
+                            value={fontSize}
+                            onChange={setFontSize}
+                            options={FONT_SIZE_OPTIONS}
+                          />
                         </div>
 
-                        <Row style={{ flex: 1, overflow: 'hidden', margin: 0 }}>
+                        <Row style={{ flex: 1, overflow: 'hidden', margin: 0, minHeight: 0 }}>
                           <Col
-                            xs={24} sm={8} md={6} lg={5} xl={4}
-                            style={{ borderRight: '1px solid #f0f0f0', overflowY: 'auto', height: '100%', padding: '16px 8px' }}
+                            xs={24}
+                            sm={8}
+                            md={6}
+                            lg={5}
+                            xl={4}
+                            style={{
+                              borderRight: '1px solid #f0f0f0',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              overflow: 'hidden',
+                            }}
                           >
-                            <Text type="secondary" style={{ padding: '0 8px', fontSize: 12 }}>章节目录</Text>
-                            {chaptersQ.isLoading ? (
-                              <Skeleton active paragraph={{ rows: 5 }} style={{ padding: 8, marginTop: 8 }} />
-                            ) : (
-                              <Tree
-                                treeData={chapterTree}
-                                defaultExpandAll
-                                selectedKeys={[String(currentChapterOrder)]}
-                                onSelect={(keys) => { if (keys.length > 0) setCurrentChapterOrder(Number(keys[0])); }}
-                                style={{ marginTop: 8, background: 'transparent' }}
-                                showLine={{ showLeafIcon: false }}
-                                blockNode
-                              />
-                            )}
-                            {notes.length > 0 && (
-                              <>
-                                <Divider style={{ margin: '16px 0 8px' }} />
-                                <Text type="secondary" style={{ padding: '0 8px', fontSize: 12 }}>我的笔记 ({notes.length})</Text>
-                                <List
-                                  size="small" dataSource={notes} style={{ marginTop: 8 }}
-                                  renderItem={(note) => (
-                                    <List.Item style={{ padding: '6px 8px' }}>
-                                      <Text ellipsis={{ tooltip: note.content }} style={{ fontSize: 12 }}>📝 {note.content}</Text>
-                                    </List.Item>
-                                  )}
+                            <div
+                              style={{ overflowY: 'scroll', height: '42vh', padding: '16px 8px' }}
+                            >
+                              <Text type="secondary" style={{ padding: '0 8px', fontSize: 12 }}>
+                                章节目录
+                              </Text>
+                              {chaptersQ.isLoading ? (
+                                <Skeleton
+                                  active
+                                  paragraph={{ rows: 5 }}
+                                  style={{ padding: 8, marginTop: 8 }}
                                 />
-                              </>
-                            )}
+                              ) : (
+                                <Tree
+                                  treeData={chapterTree}
+                                  defaultExpandAll
+                                  selectedKeys={[String(currentChapterOrder)]}
+                                  onSelect={(keys) => {
+                                    if (keys.length > 0) setCurrentChapterOrder(Number(keys[0]));
+                                  }}
+                                  style={{ marginTop: 8, background: 'transparent' }}
+                                  showLine={{ showLeafIcon: false }}
+                                  blockNode
+                                />
+                              )}
+                              {notes.length > 0 && (
+                                <>
+                                  <Divider style={{ margin: '16px 0 8px' }} />
+                                  <Text type="secondary" style={{ padding: '0 8px', fontSize: 12 }}>
+                                    我的笔记 ({notes.length})
+                                  </Text>
+                                  <List
+                                    size="small"
+                                    dataSource={notes}
+                                    style={{ marginTop: 8 }}
+                                    renderItem={(note) => (
+                                      <List.Item style={{ padding: '6px 8px' }}>
+                                        <Text
+                                          ellipsis={{ tooltip: note.content }}
+                                          style={{ fontSize: 12 }}
+                                        >
+                                          📝 {note.content}
+                                        </Text>
+                                      </List.Item>
+                                    )}
+                                  />
+                                </>
+                              )}
+                            </div>
                           </Col>
 
                           <Col
-                            xs={24} sm={16} md={18} lg={19} xl={20}
-                            style={{ overflowY: 'auto', height: '100%', padding: '24px 40px', background: '#fefefe' }}
+                            xs={24}
+                            sm={16}
+                            md={18}
+                            lg={19}
+                            xl={20}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              background: '#fefefe',
+                            }}
                           >
-                            {chapterContentQ.isLoading ? (
-                              <Skeleton active paragraph={{ rows: 12 }} />
-                            ) : chapterContent ? (
-                              <>
-                                <Title level={4} style={{ marginBottom: 24, color: '#1f1f1f' }}>
-                                  {currentChapter?.title}
-                                </Title>
-                                <div style={{ maxWidth: 800 }}>
-                                  <Paragraph
-                                    style={{
-                                      fontSize: fontSizeConf.body, lineHeight: fontSizeConf.lineHeight,
-                                      margin: 0, color: '#262626', whiteSpace: 'pre-wrap',
-                                    }}
-                                  >
-                                    {chapterContent.split('\n').map((line, i) => (
-                                      <span key={i}>
-                                        {line}
-                                        {i < chapterContent.split('\n').length - 1 && <br />}
-                                      </span>
-                                    ))}
-                                  </Paragraph>
-                                </div>
-                              </>
-                            ) : (
-                              <EmptyState height={300} description="暂无章节内容" />
-                            )}
+                            <div
+                              style={{ padding: '24px 40px', height: '42vh', overflowY: 'scroll' }}
+                            >
+                              {chapterContentQ.isLoading ? (
+                                <Skeleton active paragraph={{ rows: 12 }} />
+                              ) : chapterContent ? (
+                                <>
+                                  <Title level={4} style={{ marginBottom: 24, color: '#1f1f1f' }}>
+                                    {currentChapter?.title}
+                                  </Title>
+                                  <div style={{ maxWidth: 800 }}>
+                                    <Paragraph
+                                      style={{
+                                        fontSize: fontSizeConf.body,
+                                        lineHeight: fontSizeConf.lineHeight,
+                                        margin: 0,
+                                        color: '#262626',
+                                        whiteSpace: 'pre-wrap',
+                                      }}
+                                    >
+                                      {chapterContent.split('\n').map((line, i) => (
+                                        <span key={i}>
+                                          {line}
+                                          {i < chapterContent.split('\n').length - 1 && <br />}
+                                        </span>
+                                      ))}
+                                    </Paragraph>
+                                  </div>
+                                </>
+                              ) : (
+                                <EmptyState height={300} description="暂无章节内容" />
+                              )}
+                            </div>
                           </Col>
                         </Row>
                       </>
                     )}
-                  </>
-                )}
-
-                {readerMode === 'knowledge' && (
-                  <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
-                    {detail?.parse_status !== 'completed' ? (
-                      <EmptyState height={300} description="请先解析书籍内容" />
-                    ) : (
-                      <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                          <Space>
-                            <BulbOutlined style={{ color: '#faad14', fontSize: 20 }} />
-                            <Text strong style={{ fontSize: 16 }}>AI 提取的知识点</Text>
-                            <Tag color="gold" style={{ marginLeft: 8 }}>共 {chapters.length} 个章节</Tag>
-                          </Space>
-                          <Button
-                            icon={<ReloadOutlined />}
-                            onClick={() => selectedBook && reparseMutation.mutate(selectedBook.id)}
-                            loading={reparseMutation.isPending}
-                          >
-                            重新提取
-                          </Button>
-                        </div>
-
-                        {chaptersQ.isLoading ? (
-                          <Skeleton active paragraph={{ rows: 8 }} />
-                        ) : chapters.length === 0 ? (
-                          <EmptyState height={200} description="暂无章节数据" />
-                        ) : (
-                          chapters.map((ch, idx) => (
-                            <Card
-                              key={ch.id}
-                              size="small"
-                              style={{ marginBottom: 16 }}
-                              title={
-                                <Space>
-                                  <Tag color="blue">{idx + 1}</Tag>
-                                  <Text strong>{ch.title}</Text>
-                                </Space>
-                              }
-                              styles={{ body: { padding: 16 } }}
-                            >
-                              <Paragraph style={{ marginBottom: 12 }}>
-                                <Text type="secondary">📋 章节概要</Text>
-                                <br />
-                                <Text style={{ fontSize: 14 }}>
-                                  第 {ch.chapter_order} 章 · {ch.char_count} 字符
-                                </Text>
-                              </Paragraph>
-                              <Space wrap>
-                                {['核心概念', '关键要点', '实战建议', '常见误区'].map((tag) => (
-                                  <Tag key={tag} color="geekblue" style={{ padding: '2px 10px' }}>#{tag}</Tag>
-                                ))}
-                              </Space>
-                            </Card>
-                          ))
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {readerMode === 'qa' && (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    <div style={{ flex: 1, overflowY: 'auto', padding: 24, background: '#fafafa' }}>
-                      {qaMessages.length === 0 && !qaMutation.isPending ? (
-                        <EmptyState
-                          height={300}
-                          image={<QuestionCircleOutlined style={{ fontSize: 64, color: '#d9d9d9' }} />}
-                          description="向 AI 提问，基于书籍内容获取精准回答"
-                          extra={
-                            <Space direction="vertical" style={{ marginTop: 16 }}>
-                              {['这本书的核心观点是什么？', '如何构建有效的交易系统？', '风险管理的关键原则有哪些？'].map((q) => (
-                                <Tag
-                                  key={q} color="blue"
-                                  style={{ cursor: 'pointer', padding: '6px 14px', fontSize: 13 }}
-                                  onClick={() => setQaInput(q)}
-                                >
-                                  💬 {q}
-                                </Tag>
-                              ))}
-                            </Space>
-                          }
-                        />
-                      ) : (
-                        <List
-                          dataSource={qaMessages}
-                          renderItem={(msg, msgIdx) => (
-                            <List.Item
-                              style={{
-                                border: 'none', padding: 0, marginBottom: 20,
-                                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                              }}
-                            >
-                              <div
-                                style={{
-                                  display: 'flex', maxWidth: '80%', alignItems: 'flex-start', gap: 12,
-                                  flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
-                                }}
-                              >
-                                <Avatar
-                                  size={36}
-                                  style={{ background: msg.role === 'user' ? '#1677ff' : '#52c41a', flexShrink: 0 }}
-                                >
-                                  {msg.role === 'user' ? '我' : 'AI'}
-                                </Avatar>
-                                <div
-                                  style={{
-                                    padding: '12px 16px', borderRadius: 12,
-                                    background: msg.role === 'user' ? '#1677ff' : '#fff',
-                                    color: msg.role === 'user' ? '#fff' : '#1f1f1f',
-                                    boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
-                                    border: msg.role === 'user' ? 'none' : '1px solid #f0f0f0',
-                                  }}
-                                >
-                                  {qaMutation.isPending && msgIdx === qaMessages.length - 1 && msg.role === 'user' && (
-                                    <Skeleton active paragraph={{ rows: 2 }} title={false} />
-                                  )}
-                                  {!(qaMutation.isPending && msgIdx === qaMessages.length - 1 && msg.role === 'user') && (
-                                    <>
-                                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{msg.content}</div>
-                                      {msg.sources && msg.sources.length > 0 && (
-                                        <div style={{ marginTop: 12 }}>
-                                          <Divider style={{ margin: '8px 0' }} />
-                                          <Text type="secondary" style={{ fontSize: 12 }}>📚 来源参考：</Text>
-                                          <Space wrap style={{ marginTop: 4 }}>
-                                            {msg.sources.map((s, si) => (
-                                              <Tag key={si} color="purple" style={{ margin: 0 }}>
-                                                {s.chapter || `第${si + 1}章`}
-                                                {s.page_num ? ` · P${s.page_num}` : ''}
-                                              </Tag>
-                                            ))}
-                                          </Space>
-                                        </div>
-                                      )}
-                                    </>
-                                  )}
-                                </div>
-                              </div>
-                            </List.Item>
-                          )}
-                        />
-                      )}
-                    </div>
-
-                    <div style={{ padding: '12px 24px', borderTop: '1px solid #f0f0f0', background: '#fff' }}>
-                      <Space.Compact style={{ width: '100%' }}>
-                        <TextArea
-                          value={qaInput}
-                          onChange={(e) => setQaInput(e.target.value)}
-                          placeholder="基于书籍内容提问..."
-                          autoSize={{ minRows: 1, maxRows: 4 }}
-                          onPressEnter={(e) => { if (!e.shiftKey) { e.preventDefault(); handleSendQA(); } }}
-                          disabled={qaMutation.isPending || !selectedBook}
-                          style={{ resize: 'none' }}
-                        />
-                        <Button
-                          type="primary" icon={<SendOutlined />} onClick={handleSendQA}
-                          loading={qaMutation.isPending} disabled={!qaInput.trim() || !selectedBook}
-                          style={{ height: 'auto', minHeight: 40 }}
-                        >
-                          发送
-                        </Button>
-                      </Space.Compact>
-                      <Text type="secondary" style={{ fontSize: 11, marginTop: 4, display: 'block' }}>
-                        按 Enter 发送，Shift + Enter 换行
-                      </Text>
-                    </div>
                   </div>
                 )}
               </>
@@ -882,13 +824,23 @@ const BooksPage = () => {
       <Modal
         title="AI 书籍分析"
         open={analyzeModalOpen}
-        onCancel={() => { setAnalyzeModalOpen(false); setAnalyzeResult(null); }}
+        onCancel={() => {
+          setAnalyzeModalOpen(false);
+          setAnalyzeResult(null);
+        }}
         width={800}
-        footer={!analyzeResult && !analyzeMutation.isPending ? (
-          <Button type="primary" onClick={handleStartAnalyze} icon={<BulbOutlined />} size="large">
-            开始分析
-          </Button>
-        ) : null}
+        footer={
+          !analyzeResult && !analyzeMutation.isPending ? (
+            <Button
+              type="primary"
+              onClick={handleStartAnalyze}
+              icon={<BulbOutlined />}
+              size="large"
+            >
+              开始分析
+            </Button>
+          ) : null
+        }
       >
         {!analyzeResult ? (
           <Space direction="vertical" style={{ width: '100%' }}>
@@ -906,14 +858,17 @@ const BooksPage = () => {
                 optionFilterProp="label"
                 value={analyzeStrategyIds}
                 onChange={setAnalyzeStrategyIds}
-                options={(allStrategiesQ.data || []).map(s => ({ label: s.name, value: s.id }))}
+                options={(allStrategiesQ.data || []).map((s) => ({ label: s.name, value: s.id }))}
                 loading={allStrategiesQ.isLoading}
                 notFoundContent="暂无策略"
               />
             </Card>
 
             {analyzeMutation.isPending && (
-              <Space direction="vertical" style={{ width: '100%', textAlign: 'center', padding: 40 }}>
+              <Space
+                direction="vertical"
+                style={{ width: '100%', textAlign: 'center', padding: 40 }}
+              >
                 <Spin size="large" />
                 <Text>AI 正在分析书籍内容，请稍候...</Text>
                 <Text type="secondary">分析过程包括：书籍解读 → 核心概念提取 → 交易系统生成</Text>
@@ -929,7 +884,14 @@ const BooksPage = () => {
                 children: (
                   <div style={{ maxHeight: 500, overflowY: 'auto' }}>
                     <Typography>
-                      <pre style={{ whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.7, fontFamily: 'inherit' }}>
+                      <pre
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          fontSize: 14,
+                          lineHeight: 1.7,
+                          fontFamily: 'inherit',
+                        }}
+                      >
                         {analyzeResult.book_analysis}
                       </pre>
                     </Typography>
@@ -937,16 +899,26 @@ const BooksPage = () => {
                     <Title level={5}>核心概念</Title>
                     <Space wrap>
                       {analyzeResult.core_concepts?.map((c: string, i: number) => (
-                        <Tag key={i} color="blue">{c}</Tag>
+                        <Tag key={i} color="blue">
+                          {c}
+                        </Tag>
                       ))}
                     </Space>
                     <Divider />
                     <Title level={5}>策略摘要</Title>
                     <Descriptions column={1} bordered size="small">
-                      <Descriptions.Item label="策略名称">{analyzeResult.trading_system?.name}</Descriptions.Item>
-                      <Descriptions.Item label="策略类型">{analyzeResult.trading_system?.category}</Descriptions.Item>
-                      <Descriptions.Item label="交易对">{analyzeResult.trading_system?.symbol}</Descriptions.Item>
-                      <Descriptions.Item label="周期">{analyzeResult.trading_system?.timeframe}</Descriptions.Item>
+                      <Descriptions.Item label="策略名称">
+                        {analyzeResult.trading_system?.name}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="策略类型">
+                        {analyzeResult.trading_system?.category}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="交易对">
+                        {analyzeResult.trading_system?.symbol}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="周期">
+                        {analyzeResult.trading_system?.timeframe}
+                      </Descriptions.Item>
                     </Descriptions>
                   </div>
                 ),
@@ -957,19 +929,27 @@ const BooksPage = () => {
                 children: (
                   <div style={{ maxHeight: 500, overflowY: 'auto' }}>
                     <Title level={5}>入场规则</Title>
-                    <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
+                    <pre
+                      style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}
+                    >
                       {JSON.stringify(analyzeResult.trading_system?.entry_rules, null, 2)}
                     </pre>
                     <Title level={5}>出场规则</Title>
-                    <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
+                    <pre
+                      style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}
+                    >
                       {JSON.stringify(analyzeResult.trading_system?.exit_rules, null, 2)}
                     </pre>
                     <Title level={5}>仓位管理</Title>
-                    <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
+                    <pre
+                      style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}
+                    >
                       {JSON.stringify(analyzeResult.trading_system?.position_sizing, null, 2)}
                     </pre>
                     <Title level={5}>风控规则</Title>
-                    <pre style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
+                    <pre
+                      style={{ fontSize: 12, background: '#f5f5f5', padding: 12, borderRadius: 6 }}
+                    >
                       {JSON.stringify(analyzeResult.trading_system?.risk_control, null, 2)}
                     </pre>
                   </div>
@@ -985,11 +965,18 @@ const BooksPage = () => {
                     columns={[
                       { title: '名称', dataIndex: 'name' },
                       { title: '状态', dataIndex: 'status', render: (v: string) => <Tag>{v}</Tag> },
-                      { title: '创建时间', dataIndex: 'created_at', render: (v: string) => dayjs(v).format('YYYY-MM-DD') },
+                      {
+                        title: '创建时间',
+                        dataIndex: 'created_at',
+                        render: (v: string) => dayjs(v).format('YYYY-MM-DD'),
+                      },
                       {
                         title: '操作',
                         render: (_: any, record: any) => (
-                          <Button type="link" onClick={() => window.open(`/strategies?id=${record.id}`, '_blank')}>
+                          <Button
+                            type="link"
+                            onClick={() => window.open(`/strategies?id=${record.id}`, '_blank')}
+                          >
                             查看详情
                           </Button>
                         ),
@@ -1007,8 +994,12 @@ const BooksPage = () => {
         open={createModalOpen}
         mode="create"
         entityName="书籍"
-        onOk={async (values) => { await createMutation.mutateAsync(values); }}
-        onCancel={() => { setCreateModalOpen(false); }}
+        onOk={async (values) => {
+          await createMutation.mutateAsync(values);
+        }}
+        onCancel={() => {
+          setCreateModalOpen(false);
+        }}
       >
         <Form.Item name="title" label="书名" rules={[{ required: true, message: '请输入书名' }]}>
           <Input placeholder="请输入书名" />
@@ -1019,11 +1010,19 @@ const BooksPage = () => {
         <Form.Item name="category" label="类别">
           <Select
             placeholder="请选择类别"
-            options={CATEGORY_OPTIONS.filter((o) => o.value !== undefined).map((o) => ({ label: o.label, value: o.value }))}
+            options={CATEGORY_OPTIONS.filter((o) => o.value !== undefined).map((o) => ({
+              label: o.label,
+              value: o.value,
+            }))}
           />
         </Form.Item>
         <Form.Item name="tags" label="标签">
-          <Select mode="tags" placeholder="输入标签后回车" style={{ width: '100%' }} tokenSeparators={[',']} />
+          <Select
+            mode="tags"
+            placeholder="输入标签后回车"
+            style={{ width: '100%' }}
+            tokenSeparators={[',']}
+          />
         </Form.Item>
         <Form.Item name="description" label="简介">
           <TextArea rows={4} placeholder="请输入书籍简介" />

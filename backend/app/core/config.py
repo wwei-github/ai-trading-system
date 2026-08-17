@@ -86,7 +86,7 @@ class Settings(BaseSettings):
 
     # 文件上传配置
     UPLOAD_DIR: str = "uploads"
-    MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024  # 50MB
+    MAX_UPLOAD_SIZE: int = 200 * 1024 * 1024  # 200MB
 
     # LLM 配置（OpenAI 兼容接口）
     LLM_PROVIDER: str = "openai"  # openai / anthropic / custom

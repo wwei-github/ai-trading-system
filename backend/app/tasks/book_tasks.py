@@ -48,7 +48,10 @@ def _ocr_page(page: Any, dpi: int = 200) -> str:
     return text.strip()
 
 
-def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
+def _extract_pdf_with_fitz(
+    file_path: str,
+    progress_callback: Optional[Any] = None,
+) -> Tuple[str, List[Dict[str, Any]]]:
     """使用 PyMuPDF (fitz) 提取 PDF 文本和目录。
 
     自动检测扫描版 PDF 并降级到 OCR 识别。
@@ -94,12 +97,15 @@ def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
                 text = ""
             ocr_texts.append(text)
             if (i + 1) % 20 == 0 or i == total_pages - 1:
+                pct = int((i + 1) / total_pages * 100)
                 logger.info(
                     "OCR 进度: {}/{} 页 ({:.0f}%)",
                     i + 1,
                     total_pages,
                     (i + 1) / total_pages * 100,
                 )
+                if progress_callback:
+                    progress_callback(10, min(10 + pct // 9, 90), f"OCR 识别中（第 {i+1}/{total_pages} 页）")
         page_texts = ocr_texts
 
     doc.close()
@@ -155,7 +161,10 @@ def _extract_pdf_with_fitz(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
     return full_text, chapters
 
 
-def _extract_pdf_with_pypdf2(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
+def _extract_pdf_with_pypdf2(
+    file_path: str,
+    progress_callback: Optional[Any] = None,
+) -> Tuple[str, List[Dict[str, Any]]]:
     """降级方案：使用 PyPDF2 提取 PDF 文本（无目录），支持扫描版 OCR 降级。"""
     from PyPDF2 import PdfReader
 
@@ -193,12 +202,15 @@ def _extract_pdf_with_pypdf2(file_path: str) -> Tuple[str, List[Dict[str, Any]]]
                 text = ""
             ocr_texts.append(text.strip())
             if (i + 1) % 20 == 0 or i == total_pages - 1:
+                pct = int((i + 1) / total_pages * 100)
                 logger.info(
                     "OCR 进度: {}/{} 页 ({:.0f}%)",
                     i + 1,
                     total_pages,
                     (i + 1) / total_pages * 100,
                 )
+                if progress_callback:
+                    progress_callback(10, min(10 + pct // 9, 90), f"OCR 识别中（第 {i+1}/{total_pages} 页）")
         page_texts = ocr_texts
 
     full_text = "\n\n".join(page_texts)
@@ -224,13 +236,16 @@ def _extract_pdf_with_pypdf2(file_path: str) -> Tuple[str, List[Dict[str, Any]]]
     return full_text, chapters
 
 
-def _extract_pdf(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
+def _extract_pdf(
+    file_path: str,
+    progress_callback: Optional[Any] = None,
+) -> Tuple[str, List[Dict[str, Any]]]:
     """提取 PDF 文本和章节（PyMuPDF 优先，PyPDF2 降级）。"""
     try:
-        return _extract_pdf_with_fitz(file_path)
+        return _extract_pdf_with_fitz(file_path, progress_callback)
     except ImportError:
         logger.info("PyMuPDF 未安装，降级使用 PyPDF2")
-        return _extract_pdf_with_pypdf2(file_path)
+        return _extract_pdf_with_pypdf2(file_path, progress_callback)
 
 
 # ---------- TXT / EPUB 提取 ----------
@@ -330,12 +345,13 @@ def _extract_epub(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
 
 
 def extract_text_and_chapters(
-    file_path: str, file_type: str
+    file_path: str, file_type: str,
+    progress_callback: Optional[Any] = None,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """根据文件类型提取文本和章节结构。"""
     ft = (file_type or "").lower()
     if ft == "pdf":
-        return _extract_pdf(file_path)
+        return _extract_pdf(file_path, progress_callback)
     if ft == "txt":
         return _extract_txt(file_path)
     if ft == "epub":
@@ -386,25 +402,32 @@ def split_into_chunks(
 
 # ---------- 向量嵌入 ----------
 
-async def _generate_embeddings(chunks: List[Dict[str, Any]]) -> None:
+async def _generate_embeddings(
+    chunks: List[Dict[str, Any]],
+    db_session,
+) -> None:
     """为 chunks 生成向量嵌入（原地写入 embedding 字段）。"""
-    from app.services.llm_provider import get_llm_provider
-    from app.core.config import settings
+    from app.services.provider_factory import ProviderFactory
 
-    if not settings.LLM_API_KEY:
-        logger.info("未配置 LLM_API_KEY，跳过向量嵌入生成")
+    if not chunks:
         return
 
-    provider = get_llm_provider()
-    texts = [c["content"] for c in chunks]
-    for i in range(0, len(texts), EMBED_BATCH_SIZE):
-        batch = texts[i : i + EMBED_BATCH_SIZE]
-        try:
-            vectors = await provider.embed(batch)
-            for j, vec in enumerate(vectors):
-                chunks[i + j]["embedding"] = json.dumps(vec)
-        except Exception as e:
-            logger.warning("Embedding 生成失败（batch {}）: {}", i, e)
+    try:
+        provider = await ProviderFactory.get_active_provider(db_session)
+        texts = [c["content"] for c in chunks]
+        success_count = 0
+        for i in range(0, len(texts), EMBED_BATCH_SIZE):
+            batch = texts[i : i + EMBED_BATCH_SIZE]
+            try:
+                vectors = await provider.embed(batch)
+                for j, vec in enumerate(vectors):
+                    chunks[i + j]["embedding"] = json.dumps(vec)
+                success_count += len(vectors)
+            except Exception as e:
+                logger.warning("Embedding 生成失败（batch {}）: {}", i, e)
+        logger.info("向量嵌入生成完成: {} / {} 块成功", success_count, len(texts))
+    except Exception as e:
+        logger.warning("获取 LLM Provider 失败，跳过向量嵌入生成: {}", e)
 
 
 # ---------- 异步解析主流程 ----------
@@ -490,14 +513,49 @@ async def _parse_book_async(book_id: str) -> dict:
                             "parsed_chunks": book.parsed_chunks,
                             "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
                         }, ensure_ascii=False)
+                        # 同时写入 Redis 缓存（供轮询端点读取）和 Pub/Sub 通道（供 SSE 推送）
+                        await redis_client.set(
+                            f"book:parse:progress:{book_id}",
+                            payload,
+                            ex=3600,  # 1 小时过期
+                        )
                         await redis_client.publish(f"book:parse:progress:{book_id}", payload)
                     except Exception:
                         pass
 
             # 阶段 1: 文件解析
             await update_parse_stage("file_parsing", 10, "正在解析文件格式")
+
+            # 创建同步进度回调（在 OCR 循环中实时更新数据库进度）
+            def _ocr_progress_callback(stage_progress: int, overall_progress: int, desc: str) -> None:
+                """同步的 OCR 进度回调，通过 Redis 发布进度更新。"""
+                try:
+                    import redis as sync_redis
+                    from app.core.config import settings as _settings
+                    import datetime as _dt
+                    r = sync_redis.from_url(_settings.REDIS_URL)
+                    payload = json.dumps({
+                        "book_id": book_id,
+                        "status": "parsing",
+                        "progress": overall_progress,
+                        "stage": "file_parsing",
+                        "stage_progress": stage_progress,
+                        "stage_description": desc,
+                        "total_chapters": 0,
+                        "total_chunks": 0,
+                        "parsed_chapters": 0,
+                        "parsed_chunks": 0,
+                        "timestamp": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+                    }, ensure_ascii=False)
+                    r.publish(f"book:parse:progress:{book_id}", payload)
+                    r.set(f"book:parse:progress:{book_id}", payload, ex=3600)
+                    r.close()
+                except Exception:
+                    pass
+
             full_text, chapters = extract_text_and_chapters(
-                abs_path, book.file_type or ""
+                abs_path, book.file_type or "",
+                progress_callback=_ocr_progress_callback,
             )
             logger.info("提取完成 | full_text_len={} chapters={}", len(full_text), len(chapters))
             if chapters:
@@ -554,7 +612,7 @@ async def _parse_book_async(book_id: str) -> dict:
 
             # 阶段 4: 生成向量嵌入
             await update_parse_stage("knowledge", 80, "正在生成向量嵌入")
-            await _generate_embeddings(all_chunks)
+            await _generate_embeddings(all_chunks, session)
 
             # 阶段 5: 保存知识块
             await update_parse_stage("knowledge", 85, "正在保存知识块")

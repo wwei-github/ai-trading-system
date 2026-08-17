@@ -53,12 +53,12 @@ export const bookApi = {
   },
 
   async parseContent(id: string): Promise<BookParseResult> {
-    const res = await request.post<BookParseResult>(`/books/${id}/parse`);
+    const res = await request.post<BookParseResult>(`/books/${id}/parse`, undefined, { timeout: 60000 });
     return res.data;
   },
 
   async reparseContent(id: string): Promise<BookParseResult> {
-    const res = await request.post<BookParseResult>(`/books/${id}/reparse`);
+    const res = await request.post<BookParseResult>(`/books/${id}/reparse`, undefined, { timeout: 60000 });
     return res.data;
   },
 

@@ -223,7 +223,21 @@ async def get_parse_progress(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """查询书籍解析进度（轮询方式）。"""
+    """查询书籍解析进度（轮询方式）。优先从 Redis 缓存读取实时进度。"""
+    from app.core.database import redis_client
+    from json import loads as json_loads
+
+    # 1. 尝试从 Redis 缓存读取实时进度
+    if redis_client:
+        try:
+            cached = await redis_client.get(f"book:parse:progress:{book_id}")
+            if cached:
+                data = json_loads(cached)
+                return ApiResponse(data=data)
+        except Exception:
+            pass
+
+    # 2. 回退到数据库读取
     service = BookService(db)
     book = await service.get_book(book_id)
     if book is None:
@@ -338,13 +352,29 @@ async def list_chapters(
     include_content: bool = Query(
         False, description="是否包含正文（默认仅目录）"
     ),
-    page: int = Query(1, ge=1, description="页码"),
+    page: int = Query(None, ge=1, description="页码，不传则返回全部"),
     page_size: int = Query(20, ge=1, le=100, description="每页条数"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """获取书籍章节列表（支持分页，默认仅目录导航，不含正文）。"""
+    """获取书籍章节列表。
+    - page 和 page_size 不传：返回全部章节（前端目录使用）
+    - page 和 page_size 传：返回分页（兼容旧接口）
+    """
     service = BookService(db)
+    if page is None:
+        # 不需要分页，直接返回全部
+        chapters = await service.list_chapters(book_id, include_content)
+        schema = BookChapterResponse if include_content else BookChapterTOC
+        return ApiResponse(
+            data={
+                "items": [schema.model_validate(c) for c in chapters],
+                "total": len(chapters),
+                "page": 1,
+                "page_size": len(chapters),
+            }
+        )
+    # 需要分页（兼容旧调用）
     chapters, total = await service.list_chapters_paginated(
         book_id, include_content=include_content,
         page=page, page_size=page_size,

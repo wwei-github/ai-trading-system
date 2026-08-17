@@ -631,8 +631,24 @@ class BookService:
     def _keyword_match(
         chunks: List[KnowledgeChunk], query: str, top_k: int
     ) -> List[Tuple[KnowledgeChunk, float]]:
-        """基于关键词匹配的降级检索。"""
-        query_words = {w for w in query.lower().split() if w}
+        """基于关键词匹配的降级检索（支持中文分词）。
+
+        优先使用 jieba 对查询进行中文分词，提取双字及以上词语；
+        如果 jieba 不可用，则回退到空白分割。
+        """
+        query_words: set = set()
+        try:
+            import jieba
+            for w in jieba.cut(query.lower()):
+                w = w.strip()
+                if len(w) >= 2:
+                    query_words.add(w)
+        except ImportError:
+            pass
+
+        # 回退到空白分割
+        if not query_words:
+            query_words = {w for w in query.lower().split() if w}
 
         def score(chunk: KnowledgeChunk) -> float:
             content = chunk.content.lower()
@@ -1014,7 +1030,7 @@ class BookService:
             )
 
         # 检索与交易系统、策略相关的内容
-        query_text = "交易系统 完整策略 入场出场 仓位管理 风险管理 核心规则 交易哲学"
+        query_text = "交易系统 交易策略 交易方法 交易理念 交易规则 交易哲学 技术分析 入场出场 买入卖出 开仓平仓 做多做空 止损止盈 仓位管理 资金管理 风险管理 趋势 指标 信号 分析 市场 价格 规则 系统 方法 技术 操作 管理 理论 原则 技巧 实战 经验 交易系统 完整策略 核心规则 资金管理 仓位管理 风险控制 交易信号 入场规则 出场规则"
         if data.focus_areas:
             query_text += " " + " ".join(data.focus_areas)
 
