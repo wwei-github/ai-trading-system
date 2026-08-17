@@ -242,7 +242,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
 
   useSSE({
     url: currentBacktestId ? aiBacktestApi.getProgressUrl(currentBacktestId) : '',
-    enabled: isRunning && !!currentBacktestId,
+    enabled: !!currentBacktestId,
     onMessage: handleSSEMessage,
     onDone: handleSSEDone,
     onError: handleSSEError,

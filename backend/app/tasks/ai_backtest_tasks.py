@@ -146,6 +146,76 @@ def _append_analysis_log(ctx: AIBacktestContext, kline_index: int,
     ctx._analysis_logs.append(log_entry)
 
 
+def _append_trade_opened_log(ctx: AIBacktestContext, kline_index: int) -> None:
+    """记录开单日志（含仓位、止盈止损详情）。"""
+    trade = ctx.current_trade
+    if not trade:
+        return
+    if not hasattr(ctx, "_analysis_logs"):
+        ctx._analysis_logs = []
+    # 计算盈亏比
+    risk_reward = None
+    if trade.get("stop_loss") and trade.get("take_profit") and trade.get("entry_price"):
+        entry = trade["entry_price"]
+        if trade["direction"] == "long":
+            risk = entry - trade["stop_loss"]
+            reward = trade["take_profit"] - entry
+        else:
+            risk = trade["stop_loss"] - entry
+            reward = entry - trade["take_profit"]
+        if risk > 0:
+            risk_reward = round(reward / risk, 2)
+
+    log_entry = {
+        "kline_index": kline_index,
+        "trigger": "trade_opened",
+        "trigger_reason": trade.get("open_reason", ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "analysis": {},
+        "skipped": False,
+        "trade_info": {
+            "type": "opened",
+            "direction": trade["direction"],
+            "entry_price": trade["entry_price"],
+            "quantity": trade["quantity"],
+            "stop_loss": trade.get("stop_loss"),
+            "take_profit": trade.get("take_profit"),
+            "open_confidence": trade.get("open_confidence"),
+            "risk_reward_ratio": risk_reward,
+        },
+    }
+    ctx._analysis_logs.append(log_entry)
+
+
+def _append_trade_closed_log(ctx: AIBacktestContext, kline_index: int) -> None:
+    """记录平仓日志（含盈亏结果）。"""
+    if not ctx.completed_trades:
+        return
+    trade = ctx.completed_trades[-1]
+    if not hasattr(ctx, "_analysis_logs"):
+        ctx._analysis_logs = []
+    log_entry = {
+        "kline_index": kline_index,
+        "trigger": "trade_closed",
+        "trigger_reason": trade.get("exit_reason", ""),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "analysis": {},
+        "skipped": False,
+        "trade_info": {
+            "type": "closed",
+            "direction": trade["direction"],
+            "entry_price": trade["entry_price"],
+            "exit_price": trade.get("exit_price"),
+            "quantity": trade["quantity"],
+            "pnl": trade.get("pnl"),
+            "pnl_pct": trade.get("pnl_pct"),
+            "holding_bars": trade.get("holding_bars"),
+            "exit_reason": trade.get("exit_reason"),
+        },
+    }
+    ctx._analysis_logs.append(log_entry)
+
+
 def _append_skip_log(ctx: AIBacktestContext, kline_index: int,
                       skip_reason: str, had_position: bool = False) -> None:
     """记录跳过 AI 分析的 K 线日志（每根 K 线都有记录）。"""
@@ -570,6 +640,10 @@ async def _run_backtest_async(backtest_id: str):
             # 执行决策
             executor.execute(kline, ai_result, indicators)
 
+            # === 开单检测：上一根无持仓、这一根有持仓了 ===
+            if not had_position and ctx.current_position is not None:
+                _append_trade_opened_log(ctx, idx + 1)
+
             # === 平仓检测：上一根有持仓、这一根没了 ===
             if had_position and ctx.current_position is None:
                 logger.info(f"Position closed at kline {idx+1}, refreshing key levels")
@@ -599,6 +673,9 @@ async def _run_backtest_async(backtest_id: str):
                     _append_analysis_log(ctx, idx + 1, trigger="position_closed", analysis=refresh_result)
                 except Exception as e:
                     logger.warning(f"Post-close key level refresh failed: {e}")
+
+                # 记录平仓结果日志
+                _append_trade_closed_log(ctx, idx + 1)
 
                 # 恢复 AI 分析
                 ctx.ai_analysis_paused = False
@@ -637,6 +714,7 @@ async def _run_backtest_async(backtest_id: str):
                 key_levels=ctx.key_levels,
                 initial_analysis=ctx.initial_analysis,
                 has_position=ctx.current_position is not None,
+                current_equity=ctx.current_equity,
             )
 
         # 8. 生成总结
@@ -765,6 +843,7 @@ def _publish_progress(
     key_levels: Optional[List[Dict]] = None,
     initial_analysis: Optional[Dict] = None,
     has_position: bool = False,
+    current_equity: Optional[float] = None,
 ):
     """推送进度到 Redis Pub/Sub。
 
@@ -792,6 +871,7 @@ def _publish_progress(
             "key_levels": key_levels or [],
             "initial_analysis": initial_analysis,
             "has_position": has_position,
+            "current_equity": current_equity,
         }
         if ai_analysis is not None:
             payload["ai_analysis"] = ai_analysis

@@ -22,6 +22,7 @@ const DECISION_COLORS: Record<string, string> = {
 };
 const TRIGGER_LABEL: Record<string, string> = {
   precheck_pass: '预筛通过', key_level_hit: '关键位触发', position_closed: '平仓触发', initial: '初始化', skipped: '跳过',
+  trade_opened: '开单', trade_closed: '平仓',
 };
 
 interface Props {
@@ -36,6 +37,8 @@ const PAGE_SIZE = 50;
 
 const getTimelineColor = (log: AIAnalysisLogItem): string => {
   if (log.skipped) return 'gray';
+  if (log.trade_info?.type === 'opened') return 'red';
+  if (log.trade_info?.type === 'closed') return 'green';
   if (log.precheck) return 'cyan';
   if (log.trigger === 'key_level_hit') return 'magenta';
   if (log.trigger === 'position_closed') return 'orange';
@@ -122,6 +125,8 @@ export const AIBacktestResult: React.FC<Props> = ({
                 const a = log.analysis || {};
                 const hasContent = a.summary || a.reasoning || a.stop_loss_method;
                 const isSkipped = log.skipped;
+                const ti = log.trade_info;
+                const isLong = ti?.direction === 'long';
                 return {
                   color: isSkipped ? 'gray' : getTimelineColor(log),
                   children: (
@@ -156,6 +161,81 @@ export const AIBacktestResult: React.FC<Props> = ({
                       {/* 非跳过：显示完整分析详情 */}
                       {!isSkipped && (
                         <>
+                          {/* 开单/平仓详情 */}
+                          {ti && ti.type === 'opened' && (
+                            <Card size="small" style={{ marginBottom: 8, background: '#fff7f0', borderColor: '#ffd591' }}>
+                              <Space direction="vertical" style={{ width: '100%' }} size={4}>
+                                <Space wrap>
+                                  <Tag color={isLong ? 'red' : 'green'}>
+                                    {isLong ? '开多' : '开空'}
+                                  </Tag>
+                                  <Text strong>开仓价: {ti.entry_price?.toFixed(2)}</Text>
+                                  <Text>数量: {ti.quantity?.toFixed(4)}</Text>
+                                </Space>
+                                <Space wrap>
+                                  {ti.stop_loss != null && (
+                                    <Text type="danger" style={{ fontSize: 12 }}>
+                                      止损: {ti.stop_loss?.toFixed(2)}
+                                    </Text>
+                                  )}
+                                  {ti.take_profit != null && (
+                                    <Text type="success" style={{ fontSize: 12 }}>
+                                      止盈: {ti.take_profit?.toFixed(2)}
+                                    </Text>
+                                  )}
+                                  {ti.risk_reward_ratio != null && (
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      盈亏比: {ti.risk_reward_ratio}
+                                    </Text>
+                                  )}
+                                  {ti.open_confidence != null && (
+                                    <Rate
+                                      disabled
+                                      allowHalf
+                                      value={ti.open_confidence / 20}
+                                      style={{ fontSize: 12 }}
+                                    />
+                                  )}
+                                </Space>
+                              </Space>
+                            </Card>
+                          )}
+                          {ti && ti.type === 'closed' && (
+                            <Card size="small" style={{ marginBottom: 8, background: '#f6ffed', borderColor: '#b7eb8f' }}>
+                              <Space direction="vertical" style={{ width: '100%' }} size={4}>
+                                <Space wrap>
+                                  <Tag color={isLong ? 'red' : 'green'}>
+                                    {isLong ? '平多' : '平空'}
+                                  </Tag>
+                                  <Text>开仓价: {ti.entry_price?.toFixed(2)}</Text>
+                                  <Text>平仓价: {ti.exit_price?.toFixed(2)}</Text>
+                                  <Text>数量: {ti.quantity?.toFixed(4)}</Text>
+                                </Space>
+                                <Space wrap>
+                                  <Text
+                                    strong
+                                    style={{
+                                      color: (ti.pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f',
+                                      fontSize: 14,
+                                    }}
+                                  >
+                                    盈亏: {(ti.pnl || 0) >= 0 ? '+' : ''}{ti.pnl?.toFixed(2)} USDT
+                                    {ti.pnl_pct != null && ` (${ti.pnl_pct?.toFixed(2)}%)`}
+                                  </Text>
+                                  {ti.holding_bars != null && (
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                      持仓: {ti.holding_bars} 根K线
+                                    </Text>
+                                  )}
+                                </Space>
+                                {ti.exit_reason && (
+                                  <Text type="secondary" style={{ fontSize: 12 }}>
+                                    平仓原因: {ti.exit_reason}
+                                  </Text>
+                                )}
+                              </Space>
+                            </Card>
+                          )}
                           {a.key_levels && a.key_levels.length > 0 && (
                             <Space wrap style={{ marginBottom: 4 }}>
                               {a.key_levels.map((lvl: any, idx: number) => (
@@ -229,21 +309,6 @@ export const AIBacktestResult: React.FC<Props> = ({
                 />
               </div>
             )}
-          </Space>
-        </Card>
-      )}
-
-      {/* 预筛效能统计 */}
-      {precheckTotal > 0 && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Space wrap>
-            <Text strong>预筛效能: </Text>
-            <Tag>预筛总数: {precheckTotal}</Tag>
-            <Tag color="blue">触发 AI: {precheckTriggered}</Tag>
-            <Tag color="success">节省调用: {savedCalls}</Tag>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              节省率: {precheckTotal > 0 ? ((savedCalls / precheckTotal) * 100).toFixed(1) : 0}%
-            </Text>
           </Space>
         </Card>
       )}

@@ -85,18 +85,13 @@ export const AIBacktestProgress: React.FC<Props> = ({
     progress.stage === 'running' || progress.stage === 'preheat' || progress.stage === 'summary';
   const stageColor = isError ? 'red' : isDone ? 'green' : isCancelled ? 'orange' : 'blue';
 
-  // 预筛统计
-  const precheckTotal = progress.precheck_total ?? 0;
-  const precheckTriggered = progress.precheck_triggered ?? 0;
+  // 统计信息
   const aiCallCount = progress.ai_call_count ?? 0;
-  const triggerRate =
-    precheckTotal > 0 ? ((precheckTriggered / precheckTotal) * 100).toFixed(1) : '0.0';
-  const estimatedSaved = Math.max(0, precheckTotal - precheckTriggered);
-
-  // 预筛模式
-  const isLocalModel = progress.precheck_mode === 'local_model';
-  const precheckModeLabel = isLocalModel ? '本地模型预筛' : '规则引擎预筛';
-  const precheckModeColor = isLocalModel ? 'purple' : 'blue';
+  // 当前权益
+  const currentEquity = progress.current_equity ?? 0;
+  const initialCapital = progress.initial_capital ?? 10000;
+  const equityChange = currentEquity - initialCapital;
+  const equityChangePct = initialCapital > 0 ? ((equityChange / initialCapital) * 100).toFixed(2) : '0.00';
 
   return (
     <div style={{ maxWidth: 800, margin: '0 auto', padding: 24 }}>
@@ -127,13 +122,20 @@ export const AIBacktestProgress: React.FC<Props> = ({
               suffix={`/ ${progress.total_klines}`}
             />
             <Statistic title="已产生交易" value={progress.current_trades} />
-            {progress.current_position?.has_position && (
+            <Statistic
+              title="AI 深度分析"
+              value={aiCallCount}
+              suffix="次"
+              valueStyle={{ color: '#1677ff' }}
+            />
+            {currentEquity > 0 && (
               <Statistic
-                title="当前持仓"
-                value={progress.current_position.direction === 'long' ? '多头' : '空头'}
+                title="当前权益"
+                value={currentEquity}
+                precision={2}
+                suffix={`(${equityChangePct}%)`}
                 valueStyle={{
-                  color:
-                    (progress.current_position.unrealized_pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f',
+                  color: equityChange >= 0 ? '#52c41a' : '#ff4d4f',
                 }}
               />
             )}
@@ -172,24 +174,6 @@ export const AIBacktestProgress: React.FC<Props> = ({
             <Text>RSI14: {progress.indicators.rsi_14?.toFixed(1) || '-'}</Text>
             <Text>VolMA20: {progress.indicators.volume_ma20 ? (progress.indicators.volume_ma20 / 1000).toFixed(0) + 'K' : '-'}</Text>
           </Space>
-        </Card>
-      )}
-
-      {/* 预筛统计 */}
-      {progress.precheck_total !== undefined && (
-        <Card size="small" style={{ marginBottom: 16 }}>
-          <Space wrap>
-            <Tag color="blue">预筛 {precheckTotal} 次</Tag>
-            <Tag color="green">预筛通过 {precheckTriggered} 次</Tag>
-            <Tag color="purple">触发率 {triggerRate}%</Tag>
-            <Tag color="orange">AI 深度分析 {aiCallCount} 次</Tag>
-            <Tag color={precheckModeColor}>{precheckModeLabel}</Tag>
-          </Space>
-          <div style={{ marginTop: 8 }}>
-            <Text type="secondary">
-              预筛节省 {estimatedSaved} 次 AI 调用
-            </Text>
-          </div>
         </Card>
       )}
 
@@ -283,14 +267,21 @@ export const AIBacktestProgress: React.FC<Props> = ({
                 }}
               />
             </Col>
-            <Col span={5}>
+            <Col span={4}>
               <Statistic
                 title="开仓价"
                 value={progress.current_position.entry_price ?? 0}
                 precision={2}
               />
             </Col>
-            <Col span={5}>
+            <Col span={4}>
+              <Statistic
+                title="数量"
+                value={progress.current_position.quantity ?? 0}
+                precision={4}
+              />
+            </Col>
+            <Col span={4}>
               <Statistic
                 title="止损价"
                 value={progress.current_position.stop_loss ?? 0}
@@ -298,7 +289,7 @@ export const AIBacktestProgress: React.FC<Props> = ({
                 valueStyle={{ color: '#ff4d4f' }}
               />
             </Col>
-            <Col span={5}>
+            <Col span={4}>
               <Statistic
                 title="止盈价"
                 value={progress.current_position.take_profit ?? 0}
@@ -306,7 +297,7 @@ export const AIBacktestProgress: React.FC<Props> = ({
                 valueStyle={{ color: '#52c41a' }}
               />
             </Col>
-            <Col span={5}>
+            <Col span={4}>
               <Statistic
                 title="未实现盈亏"
                 value={progress.current_position.unrealized_pnl ?? 0}

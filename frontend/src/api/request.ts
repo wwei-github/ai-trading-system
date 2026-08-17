@@ -61,7 +61,8 @@ request.interceptors.response.use(
     return res as unknown as AxiosResponse;
   },
   (error) => {
-    message.error(error.message || '网络异常，请稍后重试');
+    const errMsg = error?.response?.data?.message || error?.response?.data?.detail || error.message || '网络异常，请稍后重试';
+    message.error(errMsg);
     return Promise.reject(error);
   },
 );

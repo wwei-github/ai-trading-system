@@ -257,23 +257,24 @@ class DecisionExecutor:
         if not pos:
             return ("hold", {})
 
-        close = kline["close"]
+        high = kline["high"]
+        low = kline["low"]
         direction = pos["direction"]
         stop_loss = pos.get("stop_loss")
         take_profit = pos.get("take_profit")
 
-        # 止损检查
+        # 止损检查（用 high/low 判断，避免 intra-bar 穿价未触发）
         if stop_loss is not None:
-            if direction == "long" and close <= stop_loss:
+            if direction == "long" and low <= stop_loss:
                 return ("close_long", {"reason": "策略规则：触及止损位，平仓离场", "confidence": 5})
-            if direction == "short" and close >= stop_loss:
+            if direction == "short" and high >= stop_loss:
                 return ("close_short", {"reason": "策略规则：触及止损位，平仓离场", "confidence": 5})
 
-        # 止盈检查
+        # 止盈检查（用 high/low 判断，避免 intra-bar 穿价未触发）
         if take_profit is not None:
-            if direction == "long" and close >= take_profit:
+            if direction == "long" and high >= take_profit:
                 return ("close_long", {"reason": "策略规则：触及止盈位，平仓离场", "confidence": 5})
-            if direction == "short" and close <= take_profit:
+            if direction == "short" and low <= take_profit:
                 return ("close_short", {"reason": "策略规则：触及止盈位，平仓离场", "confidence": 5})
 
         return ("hold", {})
@@ -488,18 +489,18 @@ class DecisionExecutor:
         if indicator == "stop_loss" and value == "pinbar_extreme":
             stop_loss = pos.get("stop_loss")
             if stop_loss is not None:
-                if pos["direction"] == "long" and close <= stop_loss:
+                if pos["direction"] == "long" and low <= stop_loss:
                     return (True, "策略规则：Pinbar极值止损")
-                if pos["direction"] == "short" and close >= stop_loss:
+                if pos["direction"] == "short" and high >= stop_loss:
                     return (True, "策略规则：Pinbar极值止损")
             return (False, "")
 
         if indicator == "take_profit" and value in ("1.5R_or_2R",):
             take_profit = pos.get("take_profit")
             if take_profit is not None:
-                if pos["direction"] == "long" and close >= take_profit:
+                if pos["direction"] == "long" and high >= take_profit:
                     return (True, "策略规则：止盈目标1.5R~2R")
-                if pos["direction"] == "short" and close <= take_profit:
+                if pos["direction"] == "short" and low <= take_profit:
                     return (True, "策略规则：止盈目标1.5R~2R")
             return (False, "")
 

@@ -193,6 +193,7 @@ export interface AIBacktestProgress {
     has_position: boolean;
     direction?: string;
     entry_price?: number;
+    quantity?: number;
     unrealized_pnl?: number;
     unrealized_pnl_pct?: number;
     stop_loss?: number;
@@ -214,6 +215,8 @@ export interface AIBacktestProgress {
   ai_call_count?: number;
   precheck_mode?: string;
   has_position?: boolean;
+  current_equity?: number;
+  initial_capital?: number;
   ai_analysis_paused?: boolean;
   analysis_window?: { start: number; end: number; size: number };
   trigger_reason?: string;
@@ -329,6 +332,26 @@ export interface AIAnalysisLogItem {
   precheck?: boolean;
   had_position?: boolean;
   created_at: string;
+  // 开单/平仓详情
+  trade_info?: TradeInfo;
+}
+
+// 开单/平仓详情
+export interface TradeInfo {
+  type: 'opened' | 'closed';
+  direction: string;
+  entry_price: number;
+  quantity: number;
+  stop_loss?: number;
+  take_profit?: number;
+  open_confidence?: number;
+  risk_reward_ratio?: number;
+  // 平仓专用
+  exit_price?: number;
+  pnl?: number;
+  pnl_pct?: number;
+  holding_bars?: number;
+  exit_reason?: string;
 }
 
 // 初始化分析结果
