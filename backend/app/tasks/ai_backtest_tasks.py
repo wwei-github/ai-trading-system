@@ -639,6 +639,7 @@ async def _run_backtest_async(backtest_id: str):
                     "decision": ai_result.get("decision"),
                     "confidence": _tp.get("confidence"),
                     "reason": _tp.get("reason"),
+                    "source_strategy": ai_result.get("source_strategy", ""),
                 }
 
             # 执行决策
@@ -709,6 +710,7 @@ async def _run_backtest_async(backtest_id: str):
                     "ema20": indicators.get("ema20"),
                     "ema50": indicators.get("ema50"),
                     "volume_ma20": indicators.get("volume_ma20"),
+                    "close": kline.get("close"),
                 },
                 message=f"正在推进第 {idx+1}/{ctx.total_klines} 根 K 线",
                 # 新增字段
@@ -720,6 +722,7 @@ async def _run_backtest_async(backtest_id: str):
                 initial_analysis=ctx.initial_analysis,
                 has_position=ctx.current_position is not None,
                 current_equity=ctx.current_equity,
+                close_price=kline.get("close"),
             )
 
         # 8. 生成总结
@@ -840,6 +843,7 @@ def _publish_progress(
     current_position: Optional[dict] = None, message: str = "",
     ai_analysis: Optional[dict] = None,
     indicators: Optional[dict] = None,
+    close_price: Optional[float] = None,
     # 08-AI回测K线分析优化 新增参数
     precheck_total: int = 0,
     precheck_triggered: int = 0,
@@ -882,6 +886,8 @@ def _publish_progress(
             payload["ai_analysis"] = ai_analysis
         if indicators is not None:
             payload["indicators"] = indicators
+        if close_price is not None:
+            payload["close_price"] = close_price
 
         channel = f"ai-backtest-progress:{backtest_id}"
         r = sync_redis.from_url(settings.REDIS_URL)

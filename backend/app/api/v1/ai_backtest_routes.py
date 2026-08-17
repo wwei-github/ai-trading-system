@@ -178,6 +178,8 @@ async def get_ai_backtest_progress(
                     payload["ai_analysis"] = cached["ai_analysis"]
                 if cached.get("indicators"):
                     payload["indicators"] = cached["indicators"]
+                if cached.get("close_price"):
+                    payload["close_price"] = cached["close_price"]
             else:
                 # 没有缓存，尝试从 Redis 读
                 _c = await _read_cached()
@@ -186,6 +188,8 @@ async def get_ai_backtest_progress(
                         payload["ai_analysis"] = _c["ai_analysis"]
                     if _c.get("indicators"):
                         payload["indicators"] = _c["indicators"]
+                    if _c.get("close_price"):
+                        payload["close_price"] = _c["close_price"]
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
             return

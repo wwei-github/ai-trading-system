@@ -179,6 +179,7 @@ export interface AIBacktestAIAnalysis {
   decision: 'open_long' | 'open_short' | 'close_long' | 'close_short' | 'hold';
   confidence: number;
   reason: string;
+  source_strategy?: string;
 }
 
 // 进度推送
@@ -208,7 +209,9 @@ export interface AIBacktestProgress {
     ema20?: number;
     ema50?: number;
     volume_ma20?: number;
+    close?: number;
   };
+  close_price?: number;
   // 新增：预筛统计
   precheck_total?: number;
   precheck_triggered?: number;

@@ -209,6 +209,21 @@ export const AIBacktestProgress: React.FC<Props> = ({
         </Card>
       )}
 
+      {/* 当前价格 */}
+      {progress.close_price != null && (
+        <Card size="small" style={{ marginBottom: 16 }}>
+          <Space>
+            <Text strong>当前价格: </Text>
+            <Text style={{ fontSize: 18, fontWeight: 700, color: '#1677ff' }}>
+              {progress.close_price.toFixed(2)}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              （最新K线收盘价）
+            </Text>
+          </Space>
+        </Card>
+      )}
+
       {/* 持仓暂停指示 */}
       {progress.has_position && (
         <Alert
@@ -348,6 +363,18 @@ export const AIBacktestProgress: React.FC<Props> = ({
             </Space>
           </div>
 
+          {/* 触发策略来源 */}
+          {aiAnalysis.source_strategy && (
+            <div style={{ marginTop: 12 }}>
+              <Space>
+                <Text type="secondary">触发策略:</Text>
+                <Tag color="blue" style={{ fontSize: 13, fontWeight: 600 }}>
+                  {aiAnalysis.source_strategy}
+                </Tag>
+              </Space>
+            </div>
+          )}
+
           {/* 分析摘要 */}
           <div style={{ marginTop: 12 }}>
             <Text type="secondary">分析摘要:</Text>
@@ -366,11 +393,37 @@ export const AIBacktestProgress: React.FC<Props> = ({
             </Paragraph>
           </div>
 
-          {/* 决策理由 */}
+          {/* 各策略决策理由 */}
           {aiAnalysis.reason && (
-            <div style={{ marginTop: 12 }}>
-              <Text type="secondary">决策理由: </Text>
-              <Text>{aiAnalysis.reason}</Text>
+            <div style={{ marginTop: 16, borderTop: '1px solid #f0f0f0', paddingTop: 12 }}>
+              <Text type="secondary" style={{ fontSize: 13, fontWeight: 600 }}>
+                各策略判断：
+              </Text>
+              <div
+                style={{
+                  background: '#fffbe6',
+                  padding: 12,
+                  borderRadius: 4,
+                  fontSize: 12,
+                  whiteSpace: 'pre-wrap',
+                  margin: '8px 0 0 0',
+                  borderLeft: '3px solid #faad14',
+                  lineHeight: 2,
+                }}
+              >
+                {aiAnalysis.reason.split('\n').map((line, i) => {
+                  // 区分满足/不满足的策略行
+                  const isSatisfied = line.includes('满足') && !line.includes('不满足');
+                  const isNotSatisfied = line.includes('不满足');
+                  return (
+                    <div key={i} style={{ color: isNotSatisfied ? '#999' : 'inherit' }}>
+                      {isSatisfied && <span style={{ color: '#52c41a', marginRight: 4 }}>✓</span>}
+                      {isNotSatisfied && <span style={{ color: '#ff4d4f', marginRight: 4 }}>✗</span>}
+                      {line}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </Card>
