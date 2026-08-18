@@ -145,6 +145,9 @@ class BookQARequest(BaseModel):
 
     question: str = Field(..., description="问题内容")
     top_k: int = Field(5, ge=1, le=20, description="检索的知识块数量")
+    session_id: Optional[str] = Field(
+        None, description="会话 ID，传入后可维持多轮对话上下文记忆"
+    )
 
 
 class BookQAResponse(BaseModel):
@@ -152,6 +155,9 @@ class BookQAResponse(BaseModel):
 
     answer: str = Field(..., description="AI 回答")
     sources: list = Field(default_factory=list, description="引用来源知识块")
+    session_id: Optional[str] = Field(
+        None, description="会话 ID，连续对话时传入可维持上下文"
+    )
 
 
 # ---------- 全文搜索 ----------
@@ -241,4 +247,30 @@ class BookAnalyzeResponse(BaseModel):
     )
     source_chapters: List[int] = Field(
         default_factory=list, description="来源章节序号列表"
+    )
+
+
+# ---------- 跨书联合 RAG 问答 ----------
+
+
+class BookCrossQARequest(BaseModel):
+    """跨书联合 RAG 问答请求。"""
+
+    question: str = Field(..., min_length=1, description="问题内容")
+    book_ids: List[uuid.UUID] = Field(
+        ..., min_length=1, max_length=10, description="要检索的书籍 ID 列表（最多 10 本）"
+    )
+    top_k_per_book: int = Field(3, ge=1, le=10, description="每本书检索的知识块数量")
+    session_id: Optional[str] = Field(
+        None, description="会话 ID，传入后可维持多轮对话上下文记忆"
+    )
+
+
+class BookCrossQAResponse(BaseModel):
+    """跨书联合 RAG 问答响应。"""
+
+    answer: str = Field(..., description="AI 综合回答")
+    sources: list = Field(default_factory=list, description="各书的引用来源知识块")
+    session_id: Optional[str] = Field(
+        None, description="会话 ID，连续对话时传入可维持上下文"
     )

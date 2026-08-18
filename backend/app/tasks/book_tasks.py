@@ -313,12 +313,177 @@ def _strip_html(text: str) -> str:
     return text
 
 
+def _epub_parse_ncx(ncx_content: str) -> List[Dict[str, Any]]:
+    """解析 EPUB NCX 目录文件（toc.ncx），提取章节层级结构。
+
+    NCX 格式包含 <navMap> / <navPoint> 层级结构，
+    每个 navPoint 有 playOrder（序号）、text（标题）、content（src 文件引用）。
+
+    Returns:
+        [{"order": 1, "title": "第一章", "src": "chapter1.xhtml", "level": 1}, ...]
+    """
+    import xml.etree.ElementTree as ET
+
+    entries: List[Dict[str, Any]] = []
+
+    try:
+        root = ET.fromstring(ncx_content)
+        # NCX 命名空间通常是 urn:oasis:names:tc:opendocument:xmlns:ns:epub+package
+        ns = {"ncx": "urn:oasis:names:tc:opendocument:xmlns:ns:epub+package"}
+
+        def _parse_nav_points(parent, level: int = 1):
+            for np in parent.findall("ncx:navPoint", ns):
+                order = np.get("playOrder")
+                label = np.find("ncx:navLabel/ncx:text", ns)
+                content = np.find("ncx:content", ns)
+                src = content.get("src") if content is not None else ""
+                title = label.text.strip() if label is not None and label.text else ""
+                if title:
+                    entries.append({
+                        "order": int(order) if order else len(entries) + 1,
+                        "title": title,
+                        "src": src,
+                        "level": level,
+                    })
+                # 递归子章节
+                sub = np.find("ncx:navPoint", ns)
+                if sub is not None:
+                    # 查找所有子 navPoint
+                    for child in np.findall("ncx:navPoint", ns):
+                        _parse_nav_points(child, level + 1)
+                # 遍历兄弟节点
+                for sibling in np.findall("ncx:navPoint", ns):
+                    if sibling is not np:
+                        _parse_nav_points(sibling, level)
+
+        # 兼容不同命名空间和结构
+        body = root.find(".//ncx:navMap/ncx:navPoint", ns)
+        if body is not None:
+            for np in root.findall(".//ncx:navMap/ncx:navPoint", ns):
+                _parse_nav_points(np)
+        # 如果命名空间不匹配，尝试无命名空间解析
+        if not entries:
+            for np in root.findall(".//navMap/navPoint"):
+                order = np.get("playOrder")
+                label = np.find("navLabel/text")
+                content = np.find("content")
+                src = content.get("src") if content is not None else ""
+                title = label.text.strip() if label is not None and label.text else ""
+                if title:
+                    entries.append({
+                        "order": int(order) if order else len(entries) + 1,
+                        "title": title,
+                        "src": src,
+                        "level": 1,
+                    })
+    except Exception as e:
+        logger.warning("EPUB NCX 解析失败: {}", e)
+
+    return entries
+
+
+def _epub_parse_nav(nav_html: str) -> List[Dict[str, Any]]:
+    """解析 EPUB Nav 文件（nav.xhtml），提取章节层级结构。
+
+    HTML5 Nav 格式使用 <nav epub:type="toc"> 包含 <ol>/<li>/<a> 结构。
+
+    Returns:
+        [{"order": 1, "title": "第一章", "src": "chapter1.xhtml", "level": 1}, ...]
+    """
+    entries: List[Dict[str, Any]] = []
+    try:
+        import xml.etree.ElementTree as ET
+
+        root = ET.fromstring(nav_html)
+        # 查找 nav[epub:type="toc"] 或 nav 元素
+        ns = {
+            "xhtml": "http://www.w3.org/1999/xhtml",
+            "epub": "http://www.idpf.org/2007/ops",
+        }
+        nav = root.find(".//xhtml:nav[@epub:type='toc']", ns)
+        if nav is None:
+            nav = root.find(".//nav[@epub:type='toc']", ns)
+        if nav is None:
+            nav = root.find(".//xhtml:nav", ns)
+        if nav is None:
+            nav = root.find(".//nav", ns)
+        if nav is None:
+            return entries
+
+        order = [0]  # 可变计数器
+
+        def _parse_list_items(parent, level: int = 1):
+            for li in parent.findall(".//xhtml:li", ns) if "{http://www.w3.org/1999/xhtml}li" in [  # 尝试 xhtml ns
+                c.tag for c in parent
+            ] else parent.findall("li"):
+                a = li.find("xhtml:a", ns) if "{http://www.w3.org/1999/xhtml}a" in ''.join(
+                    [c.tag for c in li]
+                ) else li.find("a")
+                if a is None:
+                    # 尝试无命名空间
+                    a = li.find("{http://www.w3.org/1999/xhtml}a") or li.find("a")
+                title = a.text.strip() if a is not None and a.text else ""
+                href = a.get("href", "") if a is not None else ""
+                if title:
+                    order[0] += 1
+                    entries.append({
+                        "order": order[0],
+                        "title": title,
+                        "src": href.split("#")[0],  # 去掉锚点
+                        "level": level,
+                    })
+                # 子列表
+                sub_ol = None
+                for tag in ("ol", "ul"):
+                    sub_ol = li.find(f"xhtml:{tag}", ns) or li.find(tag) or li.find(f"{{{ns['xhtml']}}}{tag}")
+                    if sub_ol is not None:
+                        break
+                if sub_ol is not None:
+                    for sub_li in sub_ol.findall("xhtml:li", ns) if "{http://www.w3.org/1999/xhtml}li" in [
+                        c.tag for c in sub_ol
+                    ] else sub_ol.findall("li"):
+                        _parse_list_items(sub_li, level + 1)
+
+        ol = nav.find("xhtml:ol", ns) or nav.find("ol")
+        if ol is not None:
+            _parse_list_items(ol)
+
+        # 如果无命名空间解析失败，尝试纯 HTML 解析（re 方式）
+        if not entries:
+            import re as _re
+            pattern = _re.compile(r'<a\s+href="([^"]+)"[^>]*>([^<]+)</a>', _re.IGNORECASE)
+            for match in pattern.finditer(nav_html):
+                href, title = match.group(1), match.group(2).strip()
+                if title and href:
+                    order[0] += 1
+                    entries.append({
+                        "order": order[0],
+                        "title": title,
+                        "src": href.split("#")[0],
+                        "level": 1,
+                    })
+    except Exception as e:
+        logger.warning("EPUB Nav 解析失败: {}", e)
+
+    return entries
+
+
 def _extract_epub(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
-    """从 EPUB 文件提取文本和章节。"""
+    """从 EPUB 文件提取文本和章节（支持标准 TOC 目录导航）。
+
+    改进：
+    1. 优先解析 toc.ncx 或 nav.xhtml 获取真实目录结构
+    2. 按目录层级映射到 HTML 文件内容
+    3. 保留章节层级（level 1/2/3）供前端树形展示
+    4. 降级：无 TOC 时按文件名排序
+    """
     chapters: List[Dict[str, Any]] = []
     all_texts: List[str] = []
+    html_contents: Dict[str, str] = {}  # filename -> text
+    html_order: Dict[str, int] = {}  # filename -> display order
 
     with zipfile.ZipFile(file_path, "r") as zf:
+        # 读取所有 HTML 文件内容
         html_files = sorted(
             [n for n in zf.namelist() if n.lower().endswith((".xhtml", ".html", ".htm"))]
         )
@@ -328,7 +493,77 @@ def _extract_epub(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
                 text = _strip_html(raw).strip()
                 if not text:
                     continue
+                # 从文件名中提取标题（去掉路径和扩展名）
+                basename = name.split("/")[-1]
+                html_contents[name] = text
+                html_order[name] = idx
                 all_texts.append(text)
+            except Exception as e:
+                logger.warning("EPUB 解析文件 {} 失败: {}", name, e)
+
+        # 尝试解析 TOC（NCX 优先，Nav 次之）
+        toc_entries: List[Dict[str, Any]] = []
+
+        # 查找 NCX 文件
+        for n in zf.namelist():
+            if n.lower().endswith(".ncx") or "toc.ncx" in n.lower():
+                try:
+                    ncx_raw = zf.read(n).decode("utf-8", errors="ignore")
+                    toc_entries = _epub_parse_ncx(ncx_raw)
+                    if toc_entries:
+                        logger.info("EPUB NCX 目录解析成功: {} 条目", len(toc_entries))
+                        break
+                except Exception as e:
+                    logger.warning("EPUB NCX 读取失败 {}: {}", n, e)
+
+        # 未找到 NCX，尝试 Nav
+        if not toc_entries:
+            for n in zf.namelist():
+                if "nav" in n.lower() and n.lower().endswith((".xhtml", ".html")):
+                    try:
+                        nav_raw = zf.read(n).decode("utf-8", errors="ignore")
+                        toc_entries = _epub_parse_nav(nav_raw)
+                        if toc_entries:
+                            logger.info("EPUB Nav 目录解析成功: {} 条目", len(toc_entries))
+                            break
+                    except Exception as e:
+                        logger.warning("EPUB Nav 读取失败 {}: {}", n, e)
+
+        # 使用 TOC 构建章节
+        if toc_entries and html_contents:
+            # 建立 src -> content 的映射
+            src_content: Dict[str, str] = {}
+            for entry in toc_entries:
+                src = entry["src"]
+                # 匹配 HTML 文件（支持部分路径匹配）
+                matched = False
+                for hname, htext in html_contents.items():
+                    if hname.endswith(src) or src in hname or hname == src:
+                        src_content[src] = htext
+                        matched = True
+                        break
+                if not matched:
+                    src_content[src] = ""
+
+            # 按 TOC 顺序构建章节
+            for entry in toc_entries:
+                src = entry["src"]
+                content = src_content.get(src, "")
+                if not content:
+                    continue
+                chapters.append({
+                    "title": entry["title"],
+                    "chapter_order": entry["order"],
+                    "page_start": None,
+                    "page_end": None,
+                    "content": content,
+                    "char_count": len(content),
+                    "level": entry.get("level", 1),
+                })
+        else:
+            # 降级：按文件名排序
+            logger.info("EPUB 无有效 TOC，使用文件名排序降级方案")
+            for idx, (name, text) in enumerate(sorted(html_contents.items(), key=lambda x: html_order.get(x[0], 0))):
                 chapters.append({
                     "title": f"章节 {idx + 1}",
                     "chapter_order": idx + 1,
@@ -338,8 +573,6 @@ def _extract_epub(file_path: str) -> Tuple[str, List[Dict[str, Any]]]:
                     "char_count": len(text),
                     "level": 1,
                 })
-            except Exception as e:
-                logger.warning("EPUB 解析文件 {} 失败: {}", name, e)
 
     return "\n\n".join(all_texts), chapters
 

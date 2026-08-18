@@ -9,6 +9,8 @@ import type {
   BookNote,
   BookNoteCreateData,
   BookQAResponse,
+  BookQARequest,
+  BookCrossQAResponse,
   BookParseResult,
   BookParseProgress,
   BookAnalyzeResult,
@@ -95,14 +97,39 @@ export const bookApi = {
     bookId: string,
     question: string,
     context?: string,
+    sessionId?: string,
   ): Promise<BookQAResponse> {
-    const payload: { question: string; context?: string; top_k?: number } = {
+    const payload: BookQARequest = {
       question,
     };
     if (context !== undefined) {
       payload.context = context;
     }
+    if (sessionId !== undefined) {
+      payload.session_id = sessionId;
+    }
     const res = await request.post<BookQAResponse>(`/books/${bookId}/qa`, payload);
+    return res.data;
+  },
+
+  async clearQASession(bookId: string, sessionId: string): Promise<void> {
+    await request.post(`/books/${bookId}/qa/clear`, { session_id: sessionId });
+  },
+
+  async crossQA(
+    bookIds: string[],
+    question: string,
+    sessionId?: string,
+  ): Promise<BookCrossQAResponse> {
+    const payload: { book_ids: string[]; question: string; session_id?: string; top_k_per_book: number } = {
+      book_ids: bookIds,
+      question,
+      top_k_per_book: 3,
+    };
+    if (sessionId !== undefined) {
+      payload.session_id = sessionId;
+    }
+    const res = await request.post<BookCrossQAResponse>('/books/cross-qa', payload);
     return res.data;
   },
 

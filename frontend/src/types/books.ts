@@ -89,6 +89,7 @@ export interface BookQARequest {
   question: string;
   context?: string;
   top_k?: number;
+  session_id?: string;
 }
 
 export interface BookQAResponse {
@@ -99,6 +100,7 @@ export interface BookQAResponse {
     page_num?: number;
     score?: number;
   }>;
+  session_id?: string;
 }
 
 export interface BookParseResult {
@@ -134,4 +136,17 @@ export interface BookAnalyzeResult {
     risk_control: any;
   };
   strategies: Strategy[];
+}
+
+export interface BookCrossQAResponse {
+  answer: string;
+  sources: Array<{
+    book_id: string;
+    book_title: string;
+    content: string;
+    chapter?: string;
+    page_num?: number;
+    score?: number;
+  }>;
+  session_id?: string;
 }

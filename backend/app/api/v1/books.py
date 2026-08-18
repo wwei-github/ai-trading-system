@@ -22,6 +22,8 @@ from app.schemas.book import (
     BookChapterResponse,
     BookChapterTOC,
     BookCreate,
+    BookCrossQARequest,
+    BookCrossQAResponse,
     BookNoteCreate,
     BookNoteResponse,
     BookNoteUpdate,
@@ -442,11 +444,41 @@ async def book_qa(
 ):
     """基于书籍内容的 RAG 问答。
 
-    使用余弦相似度向量检索相关知识片段，结合 LLM 生成回答。
+    支持多轮对话记忆（传入 session_id 维持上下文）；
+    不传 session_id 时自动生成新会话 ID。
     """
     service = BookService(db)
     result = await service.qa(book_id, data)
     return ApiResponse(data=BookQAResponse(**result))
+
+
+@router.post("/{book_id}/qa/clear", summary="清除 RAG 对话历史")
+async def clear_qa_session(
+    book_id: uuid.UUID,
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """清除指定会话的多轮对话历史记录。"""
+    service = BookService(db)
+    cleared = await service.clear_qa_session(session_id, book_id)
+    return ApiResponse(data={"cleared": cleared, "session_id": session_id})
+
+
+@router.post("/cross-qa", summary="跨书联合 RAG 问答")
+async def cross_book_qa(
+    data: BookCrossQARequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """跨书联合 RAG 问答。
+
+    从多本书同时检索相关知识片段，由 LLM 综合回答，自动标注来源书名。
+    支持多轮对话记忆（传入 session_id 维持上下文）。
+    """
+    service = BookService(db)
+    result = await service.cross_qa(data.book_ids, data)
+    return ApiResponse(data=BookCrossQAResponse(**result))
 
 
 # ---------- AI 知识提取（Stage 7.5） ----------

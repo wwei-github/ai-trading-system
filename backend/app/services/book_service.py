@@ -22,6 +22,7 @@ from app.models.book import Book, BookChapter, BookNote, KnowledgeChunk
 from app.models.strategy import Strategy
 from app.schemas.book import (
     BookCreate,
+    BookCrossQARequest,
     BookNoteCreate,
     BookNoteUpdate,
     BookQARequest,
@@ -663,19 +664,102 @@ class BookService:
         )
         return [(c, s) for c, s in ranked[:top_k] if s > 0]
 
-    # ---------- RAG 问答 ----------
+    # ---------- RAG 问答（多轮对话记忆） ----------
+
+    @staticmethod
+    async def _get_qa_session_history(
+        session_id: str, book_id: Optional[uuid.UUID] = None, max_turns: int = 5
+    ) -> List[Dict[str, str]]:
+        """从 Redis 获取多轮对话历史。
+
+        Args:
+            session_id: 会话 ID
+            book_id: 书籍 ID（None 时表示跨书会话）
+            max_turns: 保留的最大对话轮次（问答对数量）
+
+        Returns:
+            历史消息列表（按时间正序），每项为 {"role": "user"/"assistant", "content": "..."}
+        """
+        try:
+            from app.core.database import redis_client
+            if redis_client is None:
+                return []
+            key = f"book:qa:session:{session_id}:{book_id}" if book_id else f"book:qa:cross:session:{session_id}"
+            raw = await redis_client.get(key)
+            if raw:
+                import json
+                history = json.loads(raw)
+                # 保留最近 N 轮（每轮 2 条消息：user + assistant）
+                if len(history) > max_turns * 2:
+                    history = history[-(max_turns * 2):]
+                return history
+        except Exception:
+            pass
+        return []
+
+    @staticmethod
+    async def _save_qa_session_history(
+        session_id: str, book_id: Optional[uuid.UUID] = None, question: str = "", answer: str = ""
+    ) -> None:
+        """将 Q&A 对保存到 Redis 会话历史。
+
+        Args:
+            session_id: 会话 ID
+            book_id: 书籍 ID（None 时表示跨书会话）
+            question: 用户问题
+            answer: AI 回答
+        """
+        try:
+            from app.core.database import redis_client
+            if redis_client is None:
+                return
+            import json
+            key = f"book:qa:session:{session_id}:{book_id}" if book_id else f"book:qa:cross:session:{session_id}"
+            # 读取现有历史
+            raw = await redis_client.get(key)
+            history = json.loads(raw) if raw else []
+            # 追加新问答
+            history.append({"role": "user", "content": question})
+            history.append({"role": "assistant", "content": answer})
+            # 保存（1 小时过期）
+            await redis_client.set(key, json.dumps(history, ensure_ascii=False), ex=3600)
+        except Exception:
+            pass
+
+    @staticmethod
+    async def clear_qa_session(
+        session_id: str, book_id: uuid.UUID
+    ) -> bool:
+        """清除指定会话的多轮对话历史。
+
+        Args:
+            session_id: 会话 ID
+            book_id: 书籍 ID
+
+        Returns:
+            是否成功清除
+        """
+        try:
+            from app.core.database import redis_client
+            if redis_client is None:
+                return False
+            key = f"book:qa:session:{session_id}:{book_id}"
+            await redis_client.delete(key)
+            return True
+        except Exception:
+            return False
 
     async def qa(
         self, book_id: uuid.UUID, data: BookQARequest
     ) -> dict:
-        """基于书籍内容的 RAG 问答。
+        """基于书籍内容的 RAG 问答（支持多轮对话记忆）。
 
         Args:
             book_id: 书籍 ID
-            data: 问答请求
+            data: 问答请求（含可选的 session_id）
 
         Returns:
-            包含 answer 和 sources 的字典
+            包含 answer、sources 和 session_id 的字典
 
         Raises:
             NotFoundException: 书籍不存在
@@ -696,6 +780,9 @@ class BookService:
                 },
             )
 
+        # 会话管理：有 session_id 则维持上下文，无则生成新会话
+        session_id = data.session_id or str(uuid.uuid4())
+
         # 检索相关知识块（向量检索）
         scored_chunks = await self.retrieve_relevant_chunks(
             book_id, data.question, top_k=data.top_k
@@ -704,6 +791,7 @@ class BookService:
             return {
                 "answer": "未在书中找到与问题相关的内容，请尝试更换关键词或确认书籍已解析完成。",
                 "sources": [],
+                "session_id": session_id,
             }
 
         # 构建上下文
@@ -712,20 +800,32 @@ class BookService:
             for i, (c, s) in enumerate(scored_chunks)
         )
 
+        # 构建系统消息
+        system_prompt = (
+            "你是一位交易知识助手。请基于以下书籍片段回答用户问题。"
+            "回答应忠实于原文，并在合适位置标注引用片段编号（如 [片段 1]）。"
+            "若片段不足以回答问题，请如实告知。\n\n"
+            f"参考片段：\n{context_text}"
+        )
+
+        # 构建消息列表（含历史）
         messages = [
-            {
-                "role": "system",
-                "content": (
-                    "你是一位交易知识助手。请基于以下书籍片段回答用户问题。"
-                    "回答应忠实于原文，并在合适位置标注引用片段编号（如 [片段 1]）。"
-                    "若片段不足以回答问题，请如实告知。\n\n"
-                    f"参考片段：\n{context_text}"
-                ),
-            },
-            {"role": "user", "content": data.question},
+            {"role": "system", "content": system_prompt},
         ]
+
+        # 加载多轮对话历史（如有）
+        if session_id:
+            history = await self._get_qa_session_history(session_id, book_id)
+            messages.extend(history)
+
+        messages.append({"role": "user", "content": data.question})
+
         llm = await self._get_llm()
         answer = await llm.chat(messages)
+
+        # 保存 Q&A 到会话历史
+        if session_id:
+            await self._save_qa_session_history(session_id, book_id, data.question, answer)
 
         return {
             "answer": answer,
@@ -739,6 +839,125 @@ class BookService:
                 }
                 for c, s in scored_chunks
             ],
+            "session_id": session_id,
+        }
+
+    # ---------- 跨书联合 RAG 问答 ----------
+
+    async def cross_qa(
+        self, book_ids: List[uuid.UUID], data: BookCrossQARequest
+    ) -> dict:
+        """跨书联合 RAG 问答。
+
+        从多本书同时检索相关内容，由 LLM 综合回答，自动标注来源。
+
+        Args:
+            book_ids: 书籍 ID 列表
+            data: 问答请求
+
+        Returns:
+            包含综合 answer、sources 和 session_id 的字典
+
+        Raises:
+            NotFoundException: 某本书不存在
+            BadRequestException: 某本书尚未解析完成
+        """
+        session_id = data.session_id or str(uuid.uuid4())
+
+        # 验证所有书籍并收集结果
+        book_titles: Dict[str, str] = {}  # book_id -> title
+        all_scored: List[Tuple[str, KnowledgeChunk, float]] = []  # (book_id, chunk, score)
+
+        for bid in book_ids:
+            book = await self.get_book(bid)
+            if book is None:
+                raise NotFoundException(
+                    message=f"书籍不存在: {bid}",
+                    detail={"book_id": str(bid)},
+                )
+            book_titles[str(bid)] = book.title
+
+            if book.parse_status != "completed":
+                raise BadRequestException(
+                    message=f"书籍《{book.title}》尚未解析完成，无法进行问答",
+                    detail={
+                        "book_id": str(bid),
+                        "parse_status": book.parse_status or "pending",
+                    },
+                )
+
+            # 检索相关知识块
+            scored = await self.retrieve_relevant_chunks(
+                bid, data.question, top_k=data.top_k_per_book
+            )
+            for chunk, score in scored:
+                all_scored.append((str(bid), chunk, score))
+
+        if not all_scored:
+            return {
+                "answer": "未在所选书籍中找到与问题相关的内容，请尝试更换关键词。",
+                "sources": [],
+                "session_id": session_id,
+            }
+
+        # 按相似度排序，取 Top-N
+        all_scored.sort(key=lambda x: x[2], reverse=True)
+        all_scored = all_scored[:15]  # 最多 15 个片段
+
+        # 构建跨书上下文
+        context_parts = []
+        for i, (bid, chunk, score) in enumerate(all_scored):
+            book_title = book_titles.get(bid, "未知书籍")
+            context_parts.append(
+                f"[片段 {i + 1}]（《{book_title}》第 {chunk.chapter_order or '?'} 章，相似度 {score:.2f}）\n{chunk.content}"
+            )
+        context_text = "\n---\n".join(context_parts)
+
+        # 构建消息列表（含历史）
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "你是一位交易知识助手。用户正在同时阅读多本交易书籍，"
+                    "请基于以下来自不同书籍的片段综合回答用户问题。\n\n"
+                    "要求：\n"
+                    "1. 回答应综合各书观点，标注来源书名和片段编号（如 [片段 1] 来自《XXX》）\n"
+                    "2. 如果各书观点有差异，请指出差异并对比分析\n"
+                    "3. 如果片段不足以回答问题，请如实告知\n\n"
+                    f"参考片段（来自 {len(book_titles)} 本书）：\n{context_text}"
+                ),
+            },
+        ]
+
+        # 加载多轮对话历史
+        if session_id:
+            history = await self._get_qa_session_history(session_id, None)
+            messages.extend(history)
+
+        messages.append({"role": "user", "content": data.question})
+
+        llm = await self._get_llm()
+        answer = await llm.chat(messages)
+
+        # 保存 Q&A 到会话历史
+        if session_id:
+            await self._save_qa_session_history(session_id, None, data.question, answer)
+
+        return {
+            "answer": answer,
+            "sources": [
+                {
+                    "book_id": bid,
+                    "book_title": book_titles.get(bid, ""),
+                    "chunk_id": str(c.id),
+                    "chapter_order": c.chapter_order,
+                    "content": c.content[:200],
+                    "score": round(s, 4),
+                    "metadata": c.chunk_metadata,
+                }
+                for bid, c, s in all_scored
+            ],
+            "session_id": session_id,
         }
 
     # ---------- AI 知识提取（Stage 7.5） ----------
