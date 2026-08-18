@@ -132,7 +132,8 @@ async def get_ai_backtest_progress(
         backtest = await service.get_backtest(backtest_id, current_user.id)
         stage_map = {
             "completed": "done", "failed": "error",
-            "cancelled": "cancelled", "running": "running",
+            "cancelled": "cancelled", "cancelling": "cancelling",
+            "running": "running",
             "pending": "pending",
         }
 
@@ -216,6 +217,35 @@ async def get_ai_backtest_progress(
             yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             yield "data: [DONE]\n\n"
             return
+
+        # == 2.6 终止中：推送当前状态并订阅实时推送，等待最终取消事件 ==
+        if backtest.status == "cancelling":
+            payload = {
+                "backtest_id": bt_id,
+                "stage": "cancelling",
+                "progress": backtest.progress,
+                "current_kline": backtest.completed_klines,
+                "total_klines": backtest.total_klines,
+                "current_trades": 0,
+                "message": "正在终止回测...",
+                "precheck_total": backtest.precheck_total,
+                "precheck_triggered": backtest.precheck_triggered,
+                "ai_call_count": backtest.ai_call_count,
+                "current_stage_detail": "",
+                "initial_analysis": backtest.initial_analysis,
+                "ai_analysis_logs": backtest.ai_analysis_logs,
+                "key_levels": (backtest.initial_analysis or {}).get("key_levels", []),
+                "has_position": False,
+            }
+            if cached:
+                if cached.get("ai_analysis"):
+                    payload["ai_analysis"] = cached["ai_analysis"]
+                if cached.get("indicators"):
+                    payload["indicators"] = cached["indicators"]
+                if cached.get("close_price"):
+                    payload["close_price"] = cached["close_price"]
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            # 不 return，继续订阅实时推送等待最终取消事件
 
         # == 3. 运行中：订阅实时推送 + 心跳 ==
         pubsub = redis_client.pubsub()

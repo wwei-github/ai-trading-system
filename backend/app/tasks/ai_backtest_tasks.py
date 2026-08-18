@@ -73,6 +73,9 @@ class AIBacktestContext:
         self.use_local_model: bool = config.get("use_local_model", False)
         self.local_model_klines: int = config.get("local_model_klines", 10)
 
+        # 预筛开关
+        self.use_precheck: bool = config.get("use_precheck", True)
+
         # 关键位（从初始化分析或深度分析中提取）
         self.key_levels: List[Dict] = []
         self.initial_analysis: Dict = {}
@@ -345,7 +348,7 @@ async def _cleanup_stale_pending():
         await local_engine.dispose()
 
 
-@celery_app.task(bind=True, max_retries=0, acks_late=True)
+@celery_app.task(bind=True, max_retries=0, acks_late=True, soft_time_limit=7200, time_limit=7800)
 def run_ai_backtest(self, backtest_id: str):
     """执行 AI 回测（核心入口）。"""
     logger.info(f"AI backtest {backtest_id} started")
@@ -440,6 +443,7 @@ async def _run_backtest_async(backtest_id: str):
                 # 08-AI回测K线分析优化 新增配置
                 "use_local_model": backtest.use_local_model,
                 "local_model_klines": backtest.local_model_klines,
+                "use_precheck": backtest.use_precheck,
             }
             ctx = AIBacktestContext(backtest_id, config)
 
@@ -535,8 +539,15 @@ async def _run_backtest_async(backtest_id: str):
                     should_analyze = False
                     ctx.ai_analysis_paused = True
                     _append_skip_log(ctx, idx + 1, "持仓中，跳过AI分析", had_position=True)
+                elif not ctx.use_precheck:
+                    # 预筛已关闭：直接进入深度分析（使用最新 300 根 K 线）
+                    should_analyze = True
+                    ctx.last_trigger_reason = "direct_analysis"
+                    ctx.precheck_total += 1
+                    ctx.precheck_triggered += 1
+                    _append_precheck_log(ctx, idx + 1, "预筛已关闭，直接进入深度分析")
                 else:
-                    # 无持仓：先检查关键位命中
+                    # 无持仓 + 预筛已启用：先检查关键位命中
                     key_level_hit = _check_key_level_hit(kline, ctx.key_levels)
 
                     if key_level_hit is not None:
@@ -716,6 +727,12 @@ async def _run_backtest_async(backtest_id: str):
                     "trigger_type": "key_level_hit",
                     "passed": True,
                     "reason": f"命中关键位[{ctx.last_trigger_reason.split(':')[-1]}]，跳过预筛直接进入深度分析",
+                }
+            elif not ctx.use_precheck:
+                current_precheck = {
+                    "trigger_type": "direct_analysis",
+                    "passed": True,
+                    "reason": "预筛已关闭，直接进入深度分析",
                 }
             elif should_analyze and ctx.last_trigger_reason in ("ai_precheck", "local_model"):
                 current_precheck = {

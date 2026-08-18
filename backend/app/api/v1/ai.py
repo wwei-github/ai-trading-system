@@ -28,6 +28,10 @@ from app.schemas.ai import (
     SignalMarkRequest,
 )
 from app.schemas.common import ApiResponse
+from app.schemas.prompt_template import (
+    PromptTemplateCreate,
+    PromptTemplateUpdate,
+)
 from app.services.ai_service import AIService
 
 router = APIRouter(prefix="/ai", tags=["AI 助手"])
@@ -382,13 +386,12 @@ async def get_prompt_template(
 
 @router.post("/prompt-templates", summary="创建 Prompt 模板", status_code=201)
 async def create_prompt_template(
-    data: "PromptTemplateCreate",
+    data: PromptTemplateCreate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """创建 Prompt 模板。"""
     from app.services.prompt_template_service import PromptTemplateService
-    from app.schemas.prompt_template import PromptTemplateCreate
 
     service = PromptTemplateService(db)
     return ApiResponse(data=await service.create_template(data))
@@ -397,13 +400,12 @@ async def create_prompt_template(
 @router.patch("/prompt-templates/{template_id}", summary="更新 Prompt 模板")
 async def update_prompt_template(
     template_id: uuid.UUID,
-    data: "PromptTemplateUpdate",
+    data: PromptTemplateUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """更新 Prompt 模板（版本号自动 +1）。"""
     from app.services.prompt_template_service import PromptTemplateService
-    from app.schemas.prompt_template import PromptTemplateUpdate
 
     service = PromptTemplateService(db)
     return ApiResponse(data=await service.update_template(template_id, data))

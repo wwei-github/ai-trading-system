@@ -31,6 +31,9 @@ class AIBacktestCreate(BaseModel):
     local_model_klines: int = Field(
         default=10, ge=1, le=100, description="本地模型预筛时分析的 K 线数量"
     )
+    use_precheck: bool = Field(
+        default=True, description="是否启用预筛，关闭后每根 K 线都直接深度分析（使用最新 300 根 K 线）"
+    )
     strategy_ids: Optional[List[UUID]] = Field(
         default=None, description="多策略回测时，参与回测的策略 ID 列表（2-5 个）"
     )
@@ -70,6 +73,7 @@ class AIBacktestResponse(BaseModel):
     precheck_triggered: Optional[int] = 0
     use_local_model: bool = False
     local_model_klines: int = 10
+    use_precheck: bool = True
     initial_analysis: Optional[Dict[str, Any]] = None
     ai_analysis_logs: Optional[List[Dict[str, Any]]] = None
     prompt_template_ids: Optional[Dict[str, str]] = None
@@ -163,6 +167,7 @@ class AIBacktestListResponse(BaseModel):
 
     # ========== 08-AI回测K线分析优化 新增字段 ==========
     use_local_model: bool = False
+    use_precheck: bool = True
     ai_call_count: Optional[int] = 0
     precheck_total: Optional[int] = 0
     precheck_triggered: Optional[int] = 0

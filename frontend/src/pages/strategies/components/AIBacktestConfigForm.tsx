@@ -156,6 +156,7 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
 
   const isMulti = config.backtestMode === 'multi';
   const useLocal = config.useLocalModel === true;
+  const usePrecheck = config.usePrecheck !== false;
 
   // 策略匹配的指标列表
   const [strategyIndicators, setStrategyIndicators] = useState<Record<string, string[]>>({});
@@ -257,6 +258,7 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
           strategyIds: config.strategyIds ?? [],
           useLocalModel: config.useLocalModel ?? false,
           localModelKlines: config.localModelKlines ?? 10,
+          usePrecheck: config.usePrecheck ?? true,
           promptTemplateIds: config.promptTemplateIds ?? {},
         }}
         onValuesChange={(changed, all) => {
@@ -293,6 +295,7 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
             strategyIds: all.strategyIds,
             useLocalModel: all.useLocalModel,
             localModelKlines: all.localModelKlines,
+            usePrecheck: all.usePrecheck,
             promptTemplateIds: all.promptTemplateIds,
           });
         }}
@@ -379,7 +382,7 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
                           color={INDICATOR_COLOR_MAP[ind] || 'default'}
                           style={{ fontSize: 12, padding: '0 8px' }}
                         >
-                          {INDICATOR_LABEL_MAP[ind] || ind}
+                          {INDICATOR_NAME_MAP[ind] || ind}
                         </Tag>
                       </Tooltip>
                     ))}
@@ -501,55 +504,68 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
 
         <Divider />
 
-        {/* 本地模型预筛配置 */}
-        <Card
-          size="small"
-          title={
-            <Space>
-              <RobotOutlined />
-              <span>本地模型预筛配置</span>
-            </Space>
-          }
-          style={{ marginBottom: 16 }}
+        {/* 预筛开关 */}
+        <Form.Item
+          label="启用预筛"
+          name="usePrecheck"
+          valuePropName="checked"
+          extra="关闭后每根 K 线都直接拿最新 300 根做深度分析，跳过预筛阶段"
+          tooltip="开启：先通过预筛（本地模型或主AI）筛选，再决定是否深度分析\n关闭：每根 K 线都直接使用最新 300 根 K 线进行深度分析"
         >
-          <Row gutter={16}>
-            <Col span={12}>
-              <Form.Item
-                label="预筛模式"
-                name="useLocalModel"
-                valuePropName="checked"
-                extra="本地模型辅助 vs 主AI预筛"
-              >
-                <Switch
-                  checkedChildren="本地模型"
-                  unCheckedChildren="主AI"
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item
-                label="预筛 K 线数量"
-                name="localModelKlines"
-                rules={[{ type: 'number', min: 1, max: 100 }]}
-                extra="范围 1-100，默认 10"
-              >
-                <InputNumber
-                  min={1}
-                  max={100}
-                  defaultValue={10}
-                  style={{ width: '100%' }}
-                  addonAfter="根"
-                />
-              </Form.Item>
-            </Col>
-          </Row>
-          <Alert
-            type={prefilterAlertProps.type}
-            message={prefilterAlertProps.message}
-            description={prefilterAlertProps.description}
-            showIcon
-          />
-        </Card>
+          <Switch />
+        </Form.Item>
+
+        {usePrecheck && (
+          /* 本地模型预筛配置 */
+          <Card
+            size="small"
+            title={
+              <Space>
+                <RobotOutlined />
+                <span>本地模型预筛配置</span>
+              </Space>
+            }
+            style={{ marginBottom: 16 }}
+          >
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item
+                  label="预筛模式"
+                  name="useLocalModel"
+                  valuePropName="checked"
+                  extra="本地模型辅助 vs 主AI预筛"
+                >
+                  <Switch
+                    checkedChildren="本地模型"
+                    unCheckedChildren="主AI"
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item
+                  label="预筛 K 线数量"
+                  name="localModelKlines"
+                  rules={[{ type: 'number', min: 1, max: 100 }]}
+                  extra="范围 1-100，默认 10"
+                >
+                  <InputNumber
+                    min={1}
+                    max={100}
+                    defaultValue={10}
+                    style={{ width: '100%' }}
+                    addonAfter="根"
+                  />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Alert
+              type={prefilterAlertProps.type}
+              message={prefilterAlertProps.message}
+              description={prefilterAlertProps.description}
+              showIcon
+            />
+          </Card>
+        )}
 
         {/* Prompt 模板选择 */}
         <Collapse
@@ -578,17 +594,19 @@ export const AIBacktestConfigForm: React.FC<Props> = ({
                       options={initialAnalysisOptions}
                     />
                   </Form.Item>
-                  <Form.Item
-                    label="回测预筛模板"
-                    name={['promptTemplateIds', 'backtest_precheck']}
-                    tooltip="每根 K 线预筛阶段使用的 Prompt（决定是否触发深度分析）"
-                  >
-                    <Select
-                      allowClear
-                      placeholder="使用默认模板"
-                      options={precheckOptions}
-                    />
-                  </Form.Item>
+                  {usePrecheck && (
+                    <Form.Item
+                      label="回测预筛模板"
+                      name={['promptTemplateIds', 'backtest_precheck']}
+                      tooltip="每根 K 线预筛阶段使用的 Prompt（决定是否触发深度分析）"
+                    >
+                      <Select
+                        allowClear
+                        placeholder="使用默认模板"
+                        options={precheckOptions}
+                      />
+                    </Form.Item>
+                  )}
                   <Form.Item
                     label="深度分析模板"
                     name={['promptTemplateIds', 'deep_analysis']}

@@ -90,6 +90,11 @@ class AIBacktest(Base):
         Integer, nullable=False, default=10, comment="本地模型分析的 K 线数量"
     )
 
+    # 预筛开关
+    use_precheck: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, comment="是否启用预筛（关闭后每根 K 线都直接深度分析）"
+    )
+
     # 初始化 300 根预热分析
     initial_analysis: Mapped[Optional[Any]] = mapped_column(
         JSONB, nullable=True, comment="初始化 AI 分析结果（趋势、关键位、摘要）"

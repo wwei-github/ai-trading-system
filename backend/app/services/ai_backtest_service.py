@@ -98,14 +98,24 @@ class AIBacktestService:
             # 08-AI回测K线分析优化 新增字段
             use_local_model=data.use_local_model,
             local_model_klines=data.local_model_klines,
+            use_precheck=data.use_precheck,
             strategy_ids=all_strategy_ids,
         )
         self.db.add(backtest)
         await self.db.flush()
 
-        # 6. 异步提交 Celery 任务
-        task = run_ai_backtest.delay(str(backtest.id))
-        logger.info(f"AI backtest {backtest.id} submitted, task_id={task.id}")
+        # 6. 异步提交 Celery 任务（Celery 不可用时降级同步执行）
+        try:
+            task = run_ai_backtest.delay(str(backtest.id))
+            logger.info(f"AI backtest {backtest.id} submitted, task_id={task.id}")
+        except Exception as e:
+            logger.warning("Celery 不可用，降级同步执行 AI 回测 | {}", e)
+            try:
+                from app.tasks.ai_backtest_tasks import _run_backtest_async
+                import asyncio
+                asyncio.create_task(_run_backtest_async(str(backtest.id)))
+            except Exception:
+                pass
 
         # 7. 返回响应
         return await self._build_response(backtest)
@@ -704,10 +714,19 @@ class AIBacktestService:
         await self.db.flush()
         await self.db.commit()
 
-        # 6. 触发子回测任务
+        # 6. 触发子回测任务（Celery 不可用时降级同步执行）
         from app.tasks.ai_backtest_tasks import run_ai_backtest
 
-        run_ai_backtest.delay(str(child_backtest.id))
+        try:
+            run_ai_backtest.delay(str(child_backtest.id))
+        except Exception as e:
+            logger.warning("Celery 不可用，降级同步执行子回测 | {}", e)
+            try:
+                from app.tasks.ai_backtest_tasks import _run_backtest_async
+                import asyncio
+                asyncio.create_task(_run_backtest_async(str(child_backtest.id)))
+            except Exception:
+                pass
 
         return await self._build_response(child_backtest)
 

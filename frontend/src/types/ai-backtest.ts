@@ -37,6 +37,8 @@ export interface AIBacktestConfig {
   // 新增：本地模型辅助
   useLocalModel?: boolean;
   localModelKlines?: number;
+  // 新增：预筛开关
+  usePrecheck?: boolean;
   // 新增：Prompt 模板
   promptTemplateIds?: Record<string, string | null>;
 }
@@ -60,6 +62,8 @@ export interface AIBacktestCreateRequest {
   // 新增：本地模型辅助
   use_local_model?: boolean;
   local_model_klines?: number;
+  // 新增：预筛开关
+  use_precheck?: boolean;
   // 新增：Prompt 模板
   prompt_template_ids?: Record<string, string | null>;
 }
@@ -118,6 +122,7 @@ export interface AIBacktestDetail {
   precheck_triggered?: number;
   use_local_model?: boolean;
   local_model_klines?: number;
+  use_precheck?: boolean;
   parent_backtest_id?: string;
   strategy_ids?: string[];
   initial_analysis?: InitialAnalysis;

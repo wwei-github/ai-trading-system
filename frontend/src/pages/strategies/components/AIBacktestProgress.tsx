@@ -31,6 +31,7 @@ const STAGE_LABEL: Record<string, string> = {
   done: '完成',
   error: '失败',
   cancelled: '已取消',
+  cancelling: '终止中',
 };
 
 const TREND_MAP: Record<string, { label: string; color: string }> = {
@@ -61,6 +62,7 @@ const PRECHECK_TRIGGER_LABEL: Record<string, string> = {
   ai_precheck: 'AI预筛',
   local_model: '本地模型',
   skipped: '预筛跳过',
+  direct_analysis: '直接深度分析',
   none: '无操作',
 };
 const PRECHECK_TRIGGER_COLORS: Record<string, string> = {
@@ -70,6 +72,7 @@ const PRECHECK_TRIGGER_COLORS: Record<string, string> = {
   ai_precheck: 'blue',
   local_model: 'cyan',
   skipped: 'default',
+  direct_analysis: 'purple',
   none: 'default',
 };
 
@@ -101,7 +104,7 @@ export const AIBacktestProgress: React.FC<Props> = ({
   const isDone = progress.stage === 'done';
   const isCancelled = progress.stage === 'cancelled';
   const isRunning =
-    progress.stage === 'running' || progress.stage === 'preheat' || progress.stage === 'summary';
+    progress.stage === 'running' || progress.stage === 'preheat' || progress.stage === 'summary' || progress.stage === 'cancelling';
   const stageColor = isError ? 'red' : isDone ? 'green' : isCancelled ? 'orange' : 'blue';
 
   // 统计信息

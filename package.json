@@ -1,0 +1,11 @@
+{
+  "name": "ai-trading-system",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,celery,beat,frontend -c blue,green,green,cyan \"cd backend && ../.venv/bin/uvicorn app.main:app --reload --port 8002\" \"cd backend && ../.venv/bin/celery -A app.tasks worker --loglevel=info --concurrency=2 --queues=default,celery\" \"cd backend && ../.venv/bin/celery -A app.tasks beat --loglevel=info\" \"cd frontend && VITE_PROXY_TARGET=http://localhost:8002 npx vite --port 3000\"",
+    "dev:bg": "node dev.js"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

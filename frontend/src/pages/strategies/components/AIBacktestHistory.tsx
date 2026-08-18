@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useRef } from 'react';
 import { Table, Tag, Button, Space, Typography, Popconfirm, message } from 'antd';
 import { EyeOutlined, StopOutlined, MinusCircleOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +26,11 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
   const [page, setPage] = React.useState(1);
   const [stoppingIds, setStoppingIds] = React.useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = React.useState<Set<string>>(new Set());
+  // 用 ref 保持引用稳定，避免 useCallback 重建导致 Popconfirm 重复触发
+  const stoppingIdsRef = useRef(stoppingIds);
+  const deletingIdsRef = useRef(deletingIds);
+  stoppingIdsRef.current = stoppingIds;
+  deletingIdsRef.current = deletingIds;
 
   const { data, isLoading } = useQuery({
     queryKey: ['ai-backtest', 'history', page],
@@ -33,6 +38,8 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
   });
 
   const handleStop = useCallback(async (record: AIBacktestHistoryItem) => {
+    // 防重入：已经在终止中则跳过
+    if (stoppingIdsRef.current.has(record.id)) return;
     setStoppingIds(prev => new Set(prev).add(record.id));
     try {
       if (record.status === 'pending') {
@@ -46,8 +53,7 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
       queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'history'] });
       queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'detail'] });
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || '操作失败';
-      message.error(msg);
+      // axios 拦截器已显示错误提示
     } finally {
       setStoppingIds(prev => {
         const next = new Set(prev);
@@ -58,6 +64,8 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
   }, [queryClient]);
 
   const handleDelete = useCallback(async (record: AIBacktestHistoryItem) => {
+    // 防重入：已经在删除中则跳过
+    if (deletingIdsRef.current.has(record.id)) return;
     setDeletingIds(prev => new Set(prev).add(record.id));
     try {
       await aiBacktestApi.remove(record.id);
@@ -66,8 +74,7 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
       queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'history'] });
       queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'detail'] });
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.message || '删除失败';
-      message.error(msg);
+      // axios 拦截器已显示错误提示
     } finally {
       setDeletingIds(prev => {
         const next = new Set(prev);
@@ -173,6 +180,7 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
               onConfirm={() => handleStop(record)}
               okText="确定"
               cancelText="取消"
+              okButtonProps={{ loading: stoppingIds.has(record.id) }}
             >
               <Button
                 type="link"
@@ -193,7 +201,7 @@ export const AIBacktestHistory: React.FC<Props> = ({ onSelect }) => {
               onConfirm={() => handleDelete(record)}
               okText="确定删除"
               cancelText="取消"
-              okButtonProps={{ danger: true }}
+              okButtonProps={{ danger: true, loading: deletingIds.has(record.id) }}
             >
               <Button
                 type="link"

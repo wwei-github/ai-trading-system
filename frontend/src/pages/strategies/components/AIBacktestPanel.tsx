@@ -38,6 +38,7 @@ const DEFAULT_CONFIG: AIBacktestConfig = {
   strategyIds: [],
   useLocalModel: false,
   localModelKlines: 10,
+  usePrecheck: true,
   promptTemplateIds: {},
 };
 
@@ -118,8 +119,8 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
       setBacktestAnalysis(null);
       setActiveTab('progress');
     },
-    onError: (err: any) => {
-      message.error('创建回测失败: ' + (err?.message || '未知错误'));
+    onError: () => {
+      // axios 拦截器已显示错误提示
     },
   });
 
@@ -142,13 +143,34 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
   // 终止回测
   const stopMutation = useMutation({
     mutationFn: (id: string) => aiBacktestApi.stop(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       setIsStopping(true);
       message.info('正在终止回测...');
+      // 轮询检测回测是否已终止（SSE 可能未及时关闭）
+      const pollInterval = setInterval(() => {
+        aiBacktestApi.getDetail(id).then((res) => {
+          const detail = res.data;
+          if (detail.status === 'cancelled' || detail.status === 'completed' || detail.status === 'failed') {
+            clearInterval(pollInterval);
+            setIsStopping(false);
+            setIsRunning(false);
+            localStorage.removeItem(LS_BACKTEST_ID);
+            setActiveTab('history');
+            queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'history'] });
+          }
+        }).catch(() => {
+          clearInterval(pollInterval);
+          setIsStopping(false);
+          setIsRunning(false);
+          localStorage.removeItem(LS_BACKTEST_ID);
+          setActiveTab('history');
+        });
+      }, 2000);
+      // 30 秒超时，避免无限轮询
+      setTimeout(() => clearInterval(pollInterval), 30000);
     },
-    onError: (err: any) => {
+    onError: () => {
       setIsStopping(false);
-      message.error('终止回测失败: ' + (err?.message || '未知错误'));
     },
   });
 
@@ -160,10 +182,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
       message.success('AI 分析完成');
       queryClient.invalidateQueries({ queryKey: ['ai-backtest', 'detail', currentBacktestId] });
     },
-    onError: (err: any) => {
-      message.error('AI 分析失败: ' + (err?.message || '未知错误'));
-    },
-    onSettled: () => {
+    onError: () => {
       setIsAnalyzing(false);
     },
   });
@@ -175,10 +194,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
       message.success('优化策略已生成: ' + res.data.name);
       queryClient.invalidateQueries({ queryKey: ['strategies', 'list'] });
     },
-    onError: (err: any) => {
-      message.error('策略优化失败: ' + (err?.message || '未知错误'));
-    },
-    onSettled: () => {
+    onError: () => {
       setIsOptimizing(false);
     },
   });
@@ -189,6 +205,15 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     // pending 状态：回测在排队中，通知用户并保持当前页面
     if (data.stage === 'pending') {
       message.info('回测正在排队等待执行，请稍候...');
+      return;
+    }
+    // 取消/完成/错误状态：更新进度后后续由 handleSSEDone 处理
+    if (data.stage === 'cancelled') {
+      setProgress(data);
+      setIsStopping(false);
+      setIsRunning(false);
+      localStorage.removeItem(LS_BACKTEST_ID);
+      setActiveTab('history');
       return;
     }
     setProgress(data);
@@ -208,15 +233,15 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
     if (currentBacktestId) {
       aiBacktestApi.getDetail(currentBacktestId).then((res) => {
         const detail = res.data;
-        if (detail.status === 'completed') {
+        if (detail.status === 'completed' || detail.status === 'cancelled') {
           setProgress({
             backtest_id: currentBacktestId,
-            stage: 'done',
-            progress: 100,
+            stage: detail.status === 'completed' ? 'done' : 'cancelled',
+            progress: detail.status === 'completed' ? 100 : detail.progress,
             current_kline: detail.completed_klines,
             total_klines: detail.total_klines,
             current_trades: detail.trade_count || 0,
-            message: '回测完成',
+            message: detail.status === 'completed' ? '回测完成' : '回测已取消',
             precheck_total: detail.precheck_total || 0,
             precheck_triggered: detail.precheck_triggered || 0,
             ai_call_count: detail.ai_call_count || 0,
@@ -225,7 +250,14 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
             key_levels: (detail.initial_analysis as any)?.key_levels || [],
           } as any);
         }
-      }).catch(() => {});
+        // 终止后跳转到历史页
+        if (detail.status === 'cancelled' || detail.status === 'cancelling') {
+          setActiveTab('history');
+        }
+      }).catch(() => {
+        // 接口失败时跳转到历史页
+        setActiveTab('history');
+      });
     }
     localStorage.removeItem(LS_BACKTEST_ID);
     // 如果 progress 的 stage 是 pending，不切换到 result 页
@@ -270,6 +302,7 @@ const AIBacktestPanel: React.FC<Props> = ({ strategyId }) => {
       initial_capital: config.initialCapital,
       fee_rate: config.feeRate,
       use_ai: config.useAI,
+      use_precheck: config.usePrecheck,
       prerequisites: config.prerequisites,
       use_local_model: config.useLocalModel,
       local_model_klines: config.localModelKlines,
