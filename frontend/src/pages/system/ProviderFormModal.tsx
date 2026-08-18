@@ -140,8 +140,8 @@ const ProviderFormModal = ({ open, provider, onClose, onSuccess }: Props) => {
         <Alert
           type="info"
           showIcon
-          message="API Key 已改为环境变量配置"
-          description="API Key 不再在前端输入或保存，需要在 backend/.env 中通过 LLM_OPENAI_API_KEY / LLM_DEEPSEEK_API_KEY / LLM_ZHIPU_API_KEY 等变量配置后重启服务生效。"
+          message="API Key 通过环境变量配置"
+          description="API Key 完全通过环境变量 LLM_API_KEY 配置，不在 UI 中填写或展示。修改环境变量后需重启服务生效。"
           style={{ marginBottom: 16 }}
         />
 

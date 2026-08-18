@@ -3,6 +3,7 @@
 管理多 Provider 的配置加载、实例创建、CRUD 操作。
 配置持久化到 system_configs 表（category=ai, key=providers）。
 
+API Key 完全通过环境变量配置（LLM_API_KEY），不在 UI 中填写或展示。
 支持 Provider 类型：
 - openai_compatible：OpenAI 兼容接口
 - ollama：Ollama 本地模型
@@ -16,7 +17,6 @@ from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.security import decrypt_api_key
 from app.models.audit import AuditLog
 from app.services.llm_provider import (
     LLMProvider,
@@ -94,21 +94,13 @@ class ProviderFactory:
         config = provider_config.get("config", {})
 
         if ptype == "openai_compatible":
-            # 08-AI回测K线分析优化：API Key 从环境变量读取
+            # API Key 从环境变量 LLM_API_KEY 读取，不在 UI 中填写或展示
             decrypted_config = dict(config)
-            api_key = config.get("api_key", "")
             api_key_from_env = config.get("api_key_from_env", "")
-
             if api_key_from_env:
-                # 从环境变量读取
                 decrypted_config["api_key"] = getattr(settings, api_key_from_env, "")
-            elif api_key and api_key != "****":
-                # 向后兼容：尝试解密 DB 中存储的加密 key
-                try:
-                    from app.core.security import decrypt_api_key
-                    decrypted_config["api_key"] = decrypt_api_key(api_key)
-                except Exception:
-                    logger.warning("API Key 解密失败，使用原始值")
+            else:
+                decrypted_config["api_key"] = settings.LLM_API_KEY
             return OpenAICompatibleProvider(decrypted_config)
         elif ptype == "ollama":
             # 用运行时 OLLAMA_BASE_URL 覆盖 DB 中存储的 base_url
@@ -122,13 +114,8 @@ class ProviderFactory:
 
     @staticmethod
     async def list_providers(db: AsyncSession) -> dict:
-        """返回脱敏后的 Provider 列表。"""
+        """返回 Provider 列表。"""
         data = await ProviderFactory.load_providers(db)
-        # 对所有 Provider 的 api_key 脱敏
-        for p in data.get("providers", []):
-            config = p.get("config", {})
-            if "api_key" in config and config["api_key"]:
-                config["api_key"] = "****"
         return data
 
     @staticmethod
@@ -137,21 +124,17 @@ class ProviderFactory:
         provider_data: dict,
         user_id: Optional[uuid.UUID] = None,
     ) -> dict:
-        """添加 Provider（API Key 引用环境变量，不持久化到 DB）。"""
+        """添加 Provider（API Key 完全通过环境变量配置，不持久化到 DB）。"""
         provider_id = f"provider-{uuid.uuid4().hex[:12]}"
         provider_data["id"] = provider_id
         provider_data["enabled"] = True
         provider_data["created_at"] = datetime.now(timezone.utc).isoformat()
         provider_data["updated_at"] = provider_data["created_at"]
 
-        # 08-AI回测K线分析优化：API Key 迁移到环境变量
-        # 不再将 API Key 加密存储到 DB，而是存储环境变量引用
+        # API Key 完全通过环境变量 LLM_API_KEY 配置
         config = provider_data.get("config", {})
-        if "api_key" in config and config["api_key"]:
-            # 保存 api_key 到环境变量引用
-            config["api_key_from_env"] = "LLM_API_KEY"
-            # 删除原始 api_key 值（不持久化到 DB）
-            del config["api_key"]
+        config.pop("api_key", None)
+        config["api_key_from_env"] = "LLM_API_KEY"
 
         data = await ProviderFactory.load_providers(db)
         data["providers"].append(provider_data)
@@ -290,7 +273,6 @@ class ProviderFactory:
                 "name": f"默认 ({settings.LLM_MODEL})",
                 "enabled": True,
                 "config": {
-                    # 08-AI回测K线分析优化：API Key 从环境变量读取
                     "api_key_from_env": "LLM_API_KEY",
                     "base_url": settings.LLM_BASE_URL,
                     "model": settings.LLM_MODEL,

@@ -7,7 +7,6 @@ export interface ProviderConfig {
   model: string;
   temperature: number;
   max_tokens: number;
-  api_key?: string;
   embedding_model?: string;
   embedding_dimension?: number;
 }

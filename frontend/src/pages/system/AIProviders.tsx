@@ -107,7 +107,6 @@ const AIProviders = () => {
           description={
             <span style={{ color: '#8c8c8c', fontSize: 13 }}>
               模型: {config.model} ｜ 接口: {config.base_url}
-              {provider.type === 'openai_compatible' && ' ｜ API Key: ****'}
             </span>
           }
         />
