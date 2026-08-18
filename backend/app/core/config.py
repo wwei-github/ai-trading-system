@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = "0123456789abcdef0123456789abcdef"
 
     # CORS 跨域配置
-    CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:38000"]
+    CORS_ORIGINS: Union[str, List[str]] = ["http://localhost:3000", "http://localhost:38000"]
 
     # ---------- Stage 1: JWT / 鉴权 ----------
     JWT_SECRET_KEY: str = ""  # 为空时回退到 SECRET_KEY
@@ -63,7 +63,7 @@ class Settings(BaseSettings):
     EMAIL_USE_TLS: bool = True
     EMAIL_FROM: str = "noreply@trading.local"
     EMAIL_TEST_MODE: bool = True  # True=控制台打印不实际发送
-    APP_URL: str = "http://localhost:38000"  # 用于邮件链接
+    APP_URL: str = "http://localhost:3000"  # 用于邮件链接
 
     # ---------- Stage 1: 限流 ----------
     RATE_LIMIT_ENABLED: bool = False

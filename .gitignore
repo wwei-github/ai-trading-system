@@ -38,6 +38,7 @@ backend/trading.db*
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 *~
@@ -53,8 +54,6 @@ docker/data/
 *.log
 logs/
 
-# 上传文件
-backend/uploads/
 
 # 测试
 .coverage

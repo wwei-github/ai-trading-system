@@ -43,7 +43,7 @@ export default defineConfig(({ mode }) => {
       __APP_MODE__: JSON.stringify(env.VITE_RUN_MODE || mode),
     },
     server: {
-      port: 38000,
+      port: 3000,
       host: true,
       proxy: proxyConfig,
     },
