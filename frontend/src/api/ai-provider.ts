@@ -1,35 +1,20 @@
 import request from './request';
-import type {
-  ProviderListResponse,
-  AddProviderRequest,
-  OllamaModel,
-} from '@/types';
+import type { LocalModelConfig, OllamaModel } from '@/types';
 
 export const aiProviderApi = {
-  /** 获取所有 Provider 配置 */
-  async getProviders(): Promise<ProviderListResponse> {
-    const res = await request.get<ProviderListResponse>('/ai/providers');
+  /** 获取本地模型配置 */
+  async getLocalModel(): Promise<LocalModelConfig> {
+    const res = await request.get<LocalModelConfig>('/ai/providers/local-model');
     return res.data;
   },
 
-  /** 添加 Provider */
-  async addProvider(data: AddProviderRequest): Promise<ProviderListResponse> {
-    const res = await request.post<ProviderListResponse>('/ai/providers', data);
-    return res.data;
-  },
-
-  /** 删除 Provider */
-  async deleteProvider(providerId: string): Promise<ProviderListResponse> {
-    const res = await request.delete<ProviderListResponse>(
-      `/ai/providers/${providerId}`,
-    );
-    return res.data;
-  },
-
-  /** 切换当前激活的 Provider */
-  async activateProvider(providerId: string): Promise<ProviderListResponse> {
-    const res = await request.post<ProviderListResponse>(
-      `/ai/providers/${providerId}/activate`,
+  /** 更新本地模型配置 */
+  async updateLocalModel(
+    data: Partial<LocalModelConfig>,
+  ): Promise<LocalModelConfig> {
+    const res = await request.patch<LocalModelConfig>(
+      '/ai/providers/local-model',
+      data,
     );
     return res.data;
   },

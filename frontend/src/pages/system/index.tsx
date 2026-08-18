@@ -1143,7 +1143,7 @@ const SystemPage = () => {
       },
       {
         key: 'ai-providers',
-        label: 'AI Provider',
+        label: '本地模型',
         children: <AIProviders />,
       },
       {

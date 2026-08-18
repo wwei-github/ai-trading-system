@@ -44,7 +44,7 @@ class LocalModelPrechecker:
         """获取本地 Ollama provider。"""
         if self._session_maker:
             async with self._session_maker() as db:
-                return await ProviderFactory.get_provider_by_type(db, "ollama")
+                return await ProviderFactory.get_local_model_provider(db)
         # 兜底：从 ProviderFactory 获取
         raise RuntimeError("No session maker available for LocalModelPrechecker")
 

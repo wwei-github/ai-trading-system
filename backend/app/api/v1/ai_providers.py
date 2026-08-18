@@ -1,11 +1,10 @@
-"""AI Provider 管理 API。
+"""本地模型配置 API。
 
-提供多 Provider 的 CRUD 管理接口：
-- GET    /api/v1/ai/providers              - 列出所有 Provider（脱敏）
-- POST   /api/v1/ai/providers              - 添加 Provider（Admin）
-- DELETE /api/v1/ai/providers/{id}         - 删除 Provider（Admin）
-- POST   /api/v1/ai/providers/{id}/activate - 切换激活
-- POST   /api/v1/ai/providers/ollama/models - 获取 Ollama 模型列表
+云端 AI（OpenAI 兼容接口）完全由环境变量（LLM_*）配置，不再提供 UI 管理。
+这里只管理本地模型（Ollama）：
+- GET    /api/v1/ai/providers/local-model    - 获取本地模型配置
+- PATCH  /api/v1/ai/providers/local-model    - 更新本地模型配置
+- POST   /api/v1/ai/providers/ollama/models  - 获取 Ollama 模型列表
 """
 
 from typing import Any, Dict
@@ -20,58 +19,36 @@ from app.models.user import User
 from app.schemas.common import ApiResponse
 from app.services.provider_factory import ProviderFactory
 
-router = APIRouter(prefix="/ai/providers", tags=["AI Provider 管理"])
+router = APIRouter(prefix="/ai/providers", tags=["本地模型管理"])
 
 
-@router.get("", summary="列出所有 Provider（脱敏）")
-async def list_providers(
+@router.get("/local-model", summary="获取本地模型配置")
+async def get_local_model(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """列出所有 Provider 配置，API Key 已脱敏。"""
-    data = await ProviderFactory.list_providers(db)
-    return ApiResponse(data=data)
+    """获取本地模型配置（含运行时 base_url，用于展示）。"""
+    from app.core.config import settings
+
+    config = await ProviderFactory.get_local_model_config(db)
+    return ApiResponse(
+        data={**config, "base_url": settings.OLLAMA_BASE_URL.rstrip("/")}
+    )
 
 
-@router.post(
-    "",
-    summary="添加 Provider",
+@router.patch(
+    "/local-model",
+    summary="更新本地模型配置",
     dependencies=[Depends(require_roles("admin"))],
 )
-async def add_provider(
+async def update_local_model(
     body: Dict[str, Any],
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """添加 Provider（API Key 加密存储）。"""
-    data = await ProviderFactory.add_provider(db, body, user_id=current_user.id)
-    return ApiResponse(data=data)
-
-
-@router.delete(
-    "/{provider_id}",
-    summary="删除 Provider",
-    dependencies=[Depends(require_roles("admin"))],
-)
-async def delete_provider(
-    provider_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """删除 Provider（禁止删除当前激活的）。"""
-    data = await ProviderFactory.delete_provider(db, provider_id, user_id=current_user.id)
-    return ApiResponse(data=data)
-
-
-@router.post("/{provider_id}/activate", summary="切换激活的 Provider")
-async def activate_provider(
-    provider_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """切换当前激活的 Provider。"""
-    data = await ProviderFactory.activate_provider(db, provider_id, user_id=current_user.id)
-    return ApiResponse(data=data)
+    """更新本地模型配置（模型名 / Temperature / Max Tokens / Embedding 模型）。"""
+    config = await ProviderFactory.save_local_model_config(db, body)
+    return ApiResponse(data=config)
 
 
 @router.post("/ollama/models", summary="获取 Ollama 可用模型列表")

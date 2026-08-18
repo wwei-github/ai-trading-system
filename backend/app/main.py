@@ -65,11 +65,11 @@ async def _initialize_storage() -> None:
         else:
             logger.debug("默认用户已存在 | id={}", settings.DEFAULT_USER_ID)
 
-    # 迁移 AI Provider 配置（从环境变量到 DB）
+    # 初始化本地模型配置（云端 AI 完全由环境变量配置，无需迁移）
     async with async_session_maker() as session:
         from app.services.provider_factory import ProviderFactory
 
-        await ProviderFactory.migrate_from_env(session)
+        await ProviderFactory.ensure_local_model_config(session)
 
 
 @asynccontextmanager

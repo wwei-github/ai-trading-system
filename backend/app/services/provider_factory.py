@@ -1,23 +1,18 @@
-"""AI Provider 工厂类。
+"""AI Provider 工厂。
 
-管理多 Provider 的配置加载、实例创建、CRUD 操作。
-配置持久化到 system_configs 表（category=ai, key=providers）。
+云端 AI（OpenAI 兼容接口）完全由环境变量（LLM_*）配置，不在 UI 中管理。
+本地模型（Ollama）配置持久化到 system_configs 表（category=ai, key=local_model），
+用于 AI 回测的本地预筛。
 
-API Key 完全通过环境变量配置（LLM_API_KEY），不在 UI 中填写或展示。
-支持 Provider 类型：
-- openai_compatible：OpenAI 兼容接口
-- ollama：Ollama 本地模型
+API Key 完全通过环境变量 LLM_API_KEY 配置，不在 UI 中填写或展示。
 """
 
-import uuid
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.audit import AuditLog
 from app.services.llm_provider import (
     LLMProvider,
     NoopProvider,
@@ -25,283 +20,106 @@ from app.services.llm_provider import (
     OpenAICompatibleProvider,
 )
 
+# 本地模型默认配置
+DEFAULT_LOCAL_MODEL_CONFIG: Dict = {
+    "model": "qwen3.5:9b",
+    "temperature": 0.7,
+    "max_tokens": 4096,
+    "embedding_model": "nomic-embed-text",
+}
+
 
 class ProviderFactory:
-    """AI Provider 工厂类。
+    """AI Provider 工厂。
 
-    从 system_configs 表加载 Provider 配置，
-    创建对应的 LLMProvider 实例。
+    - 云端 AI：从环境变量创建 OpenAICompatibleProvider（LLM_* 配置）；
+    - 本地模型：从 system_configs 表加载 Ollama 配置。
     """
 
-    # ---------- 读取配置 ----------
-
-    @staticmethod
-    async def load_providers(db: AsyncSession) -> dict:
-        """从 system_configs 加载所有 Provider 配置。"""
-        from app.services.system_service import SystemService
-
-        svc = SystemService(db)
-        config = await svc.get_config_item("ai", "providers")
-        if config is None:
-            return {"active_provider_id": None, "providers": []}
-        return config.value
+    # ---------- 云端 AI（环境变量） ----------
 
     @staticmethod
     async def get_active_provider(db: AsyncSession) -> LLMProvider:
-        """获取当前激活的 Provider 实例。"""
-        data = await ProviderFactory.load_providers(db)
-        active_id = data.get("active_provider_id")
-        providers = data.get("providers", [])
-
-        if not active_id or not providers:
-            return NoopProvider("当前未配置 AI Provider")
-
-        for p in providers:
-            if p.get("id") == active_id:
-                return ProviderFactory._create_provider(p)
-
-        return NoopProvider("当前激活的 Provider 配置异常")
-
-    @staticmethod
-    async def get_provider_by_type(db: AsyncSession, provider_type: str) -> LLMProvider:
-        """按类型获取第一个匹配的 Provider 实例。
+        """获取云端 AI Provider（完全由环境变量 LLM_* 配置）。
 
         Args:
-            db: 数据库会话
-            provider_type: Provider 类型，如 "ollama"、"openai_compatible"
-
-        Returns:
-            LLMProvider 实例
-
-        Raises:
-            ValueError: 未找到匹配类型的 Provider
+            db: 数据库会话（保留参数以兼容调用方，云端 AI 不依赖 DB）。
         """
-        data = await ProviderFactory.load_providers(db)
-        providers = data.get("providers", [])
+        if settings.LLM_API_KEY:
+            return OpenAICompatibleProvider()
+        return NoopProvider("未配置 LLM_API_KEY，请在环境变量中配置")
 
-        for p in providers:
-            if p.get("type") == provider_type:
-                return ProviderFactory._create_provider(p)
-
-        raise ValueError(f"未找到类型为 '{provider_type}' 的 Provider")
-
-    # ---------- 创建实例 ----------
+    # ---------- 本地模型（Ollama，持久化到 DB） ----------
 
     @staticmethod
-    def _create_provider(provider_config: dict) -> LLMProvider:
-        """根据配置创建 Provider 实例。"""
-        ptype = provider_config.get("type", "")
-        config = provider_config.get("config", {})
-
-        if ptype == "openai_compatible":
-            # API Key 从环境变量 LLM_API_KEY 读取，不在 UI 中填写或展示
-            decrypted_config = dict(config)
-            api_key_from_env = config.get("api_key_from_env", "")
-            if api_key_from_env:
-                decrypted_config["api_key"] = getattr(settings, api_key_from_env, "")
-            else:
-                decrypted_config["api_key"] = settings.LLM_API_KEY
-            return OpenAICompatibleProvider(decrypted_config)
-        elif ptype == "ollama":
-            # 用运行时 OLLAMA_BASE_URL 覆盖 DB 中存储的 base_url
-            # 这样用户切换本地/Docker 开发环境时无需修改 DB 配置
-            ollama_config = dict(config)
-            ollama_config["base_url"] = settings.OLLAMA_BASE_URL.rstrip("/")
-            return OllamaProvider(ollama_config)
-        return NoopProvider(f"未知的 Provider 类型: {ptype}")
-
-    # ---------- 管理方法 ----------
-
-    @staticmethod
-    async def list_providers(db: AsyncSession) -> dict:
-        """返回 Provider 列表。"""
-        data = await ProviderFactory.load_providers(db)
-        return data
-
-    @staticmethod
-    async def add_provider(
-        db: AsyncSession,
-        provider_data: dict,
-        user_id: Optional[uuid.UUID] = None,
-    ) -> dict:
-        """添加 Provider（API Key 完全通过环境变量配置，不持久化到 DB）。"""
-        provider_id = f"provider-{uuid.uuid4().hex[:12]}"
-        provider_data["id"] = provider_id
-        provider_data["enabled"] = True
-        provider_data["created_at"] = datetime.now(timezone.utc).isoformat()
-        provider_data["updated_at"] = provider_data["created_at"]
-
-        # API Key 完全通过环境变量 LLM_API_KEY 配置
-        config = provider_data.get("config", {})
-        config.pop("api_key", None)
-        config["api_key_from_env"] = "LLM_API_KEY"
-
-        data = await ProviderFactory.load_providers(db)
-        data["providers"].append(provider_data)
-        if not data.get("active_provider_id"):
-            data["active_provider_id"] = provider_id
-
-        await ProviderFactory._save_providers(db, data)
-        await db.commit()
-
-        # 审计日志
-        if user_id:
-            db.add(
-                AuditLog(
-                    user_id=user_id,
-                    action="create",
-                    resource_type="ai_provider",
-                    resource_id=provider_id,
-                    detail={
-                        "provider_name": provider_data.get("name", ""),
-                        "provider_type": provider_data.get("type", ""),
-                    },
-                )
-            )
-            await db.flush()
-
-        return await ProviderFactory.list_providers(db)
-
-    @staticmethod
-    async def delete_provider(
-        db: AsyncSession,
-        provider_id: str,
-        user_id: Optional[uuid.UUID] = None,
-    ) -> dict:
-        """删除 Provider（禁止删除当前激活的）。"""
-        data = await ProviderFactory.load_providers(db)
-        if data.get("active_provider_id") == provider_id:
-            from app.core.exceptions import BadRequestException
-
-            raise BadRequestException(
-                message="无法删除当前激活的 Provider，请先切换到其他 Provider"
-            )
-
-        provider = None
-        for p in data["providers"]:
-            if p.get("id") == provider_id:
-                provider = p
-                break
-
-        data["providers"] = [p for p in data["providers"] if p.get("id") != provider_id]
-
-        await ProviderFactory._save_providers(db, data)
-
-        # 审计日志
-        if user_id and provider:
-            db.add(
-                AuditLog(
-                    user_id=user_id,
-                    action="delete",
-                    resource_type="ai_provider",
-                    resource_id=provider_id,
-                    detail={
-                        "provider_name": provider.get("name", ""),
-                        "provider_type": provider.get("type", ""),
-                    },
-                )
-            )
-            await db.flush()
-
-        return await ProviderFactory.list_providers(db)
-
-    @staticmethod
-    async def activate_provider(
-        db: AsyncSession,
-        provider_id: str,
-        user_id: Optional[uuid.UUID] = None,
-    ) -> dict:
-        """切换当前激活的 Provider。"""
-        data = await ProviderFactory.load_providers(db)
-        exists = any(p.get("id") == provider_id for p in data.get("providers", []))
-        if not exists:
-            from app.core.exceptions import NotFoundException
-
-            raise NotFoundException(message=f"Provider 不存在: {provider_id}")
-
-        data["active_provider_id"] = provider_id
-        await ProviderFactory._save_providers(db, data)
-
-        # 审计日志
-        if user_id:
-            db.add(
-                AuditLog(
-                    user_id=user_id,
-                    action="update",
-                    resource_type="ai_provider",
-                    resource_id=provider_id,
-                    detail={"action": "activate"},
-                )
-            )
-            await db.flush()
-
-        return await ProviderFactory.list_providers(db)
-
-    # ---------- 持久化 ----------
-
-    @staticmethod
-    async def _save_providers(db: AsyncSession, data: dict) -> None:
-        """保存 Provider 配置到 system_configs。"""
-        from app.schemas.system import SystemConfigItemCreate
+    async def get_local_model_config(db: AsyncSession) -> dict:
+        """获取本地模型配置（缺失时返回默认值）。"""
         from app.services.system_service import SystemService
 
         svc = SystemService(db)
-        await svc.upsert_config_item(
-            SystemConfigItemCreate(
-                category="ai", key="providers", value=data
-            )
-        )
-
-    # ---------- 迁移 ----------
+        config = await svc.get_config_item("ai", "local_model")
+        if config is None or not config.value:
+            return dict(DEFAULT_LOCAL_MODEL_CONFIG)
+        return dict(config.value)
 
     @staticmethod
-    async def migrate_from_env(db: AsyncSession) -> None:
-        """从环境变量迁移默认配置到 DB。
+    async def save_local_model_config(
+        db: AsyncSession, config: Optional[dict]
+    ) -> dict:
+        """保存本地模型配置（只接受可配置字段，缺失项回退默认值）。"""
+        from app.schemas.system import SystemConfigItemCreate
+        from app.services.system_service import SystemService
 
-        首次启动时执行，将 .env 中的 LLM 配置迁移到 system_configs 表。
-        后续启动时如果已有配置则跳过。
-        """
-        data = await ProviderFactory.load_providers(db)
-        if data.get("providers"):
-            logger.info("AI Provider 配置已存在，跳过迁移")
+        config = config or {}
+        cleaned = {
+            "model": (config.get("model") or "").strip()
+            or DEFAULT_LOCAL_MODEL_CONFIG["model"],
+            "temperature": (
+                config.get("temperature")
+                if config.get("temperature") is not None
+                else DEFAULT_LOCAL_MODEL_CONFIG["temperature"]
+            ),
+            "max_tokens": config.get("max_tokens")
+            or DEFAULT_LOCAL_MODEL_CONFIG["max_tokens"],
+            "embedding_model": (config.get("embedding_model") or "").strip()
+            or DEFAULT_LOCAL_MODEL_CONFIG["embedding_model"],
+        }
+
+        svc = SystemService(db)
+        await svc.upsert_config_item(
+            SystemConfigItemCreate(category="ai", key="local_model", value=cleaned)
+        )
+        await db.commit()
+        return cleaned
+
+    @staticmethod
+    async def get_local_model_provider(db: AsyncSession) -> OllamaProvider:
+        """获取本地 Ollama Provider（base_url 使用运行时 OLLAMA_BASE_URL）。"""
+        config = await ProviderFactory.get_local_model_config(db)
+        return OllamaProvider(
+            {
+                "base_url": settings.OLLAMA_BASE_URL.rstrip("/"),
+                "model": config.get("model", "qwen3.5:9b"),
+                "temperature": config.get("temperature", 0.7),
+                "max_tokens": config.get("max_tokens", 8192),
+                "embedding_model": config.get(
+                    "embedding_model", "nomic-embed-text"
+                ),
+            }
+        )
+
+    @staticmethod
+    async def ensure_local_model_config(db: AsyncSession) -> None:
+        """启动时确保本地模型配置存在（首次创建默认值）。"""
+        from app.services.system_service import SystemService
+
+        svc = SystemService(db)
+        config = await svc.get_config_item("ai", "local_model")
+        if config is not None:
+            logger.debug("本地模型配置已存在，跳过初始化")
             return
 
-        if settings.LLM_API_KEY:
-            provider = {
-                "id": f"provider-{uuid.uuid4().hex[:12]}",
-                "type": "openai_compatible",
-                "name": f"默认 ({settings.LLM_MODEL})",
-                "enabled": True,
-                "config": {
-                    "api_key_from_env": "LLM_API_KEY",
-                    "base_url": settings.LLM_BASE_URL,
-                    "model": settings.LLM_MODEL,
-                    "temperature": settings.LLM_TEMPERATURE,
-                    "max_tokens": settings.LLM_MAX_TOKENS,
-                    "embedding_model": settings.EMBEDDING_MODEL,
-                    "embedding_dimension": settings.EMBEDDING_DIMENSION,
-                },
-            }
-            data = {"active_provider_id": provider["id"], "providers": [provider]}
-            logger.info("从环境变量迁移 AI Provider 配置: {}", provider["name"])
-        else:
-            # 无 API Key 时，创建默认的 Ollama Provider（指向本地即可）
-            provider = {
-                "id": f"provider-{uuid.uuid4().hex[:12]}",
-                "type": "ollama",
-                "name": "Ollama 本地 (qwen3.5:9b)",
-                "enabled": True,
-                "config": {
-                    "base_url": settings.OLLAMA_BASE_URL,
-                    "model": "qwen3.5:9b",
-                    "temperature": 0.7,
-                    "max_tokens": 4096,
-                    "embedding_model": "nomic-embed-text",
-                },
-            }
-            data = {"active_provider_id": provider["id"], "providers": [provider]}
-            logger.info("未配置 LLM_API_KEY，创建默认 Ollama Provider: {}", provider["name"])
-
-        await ProviderFactory._save_providers(db, data)
-        await db.commit()
-        logger.info("AI Provider 配置已迁移到数据库")
+        await ProviderFactory.save_local_model_config(
+            db, dict(DEFAULT_LOCAL_MODEL_CONFIG)
+        )
+        logger.info("已初始化本地模型配置: {}", DEFAULT_LOCAL_MODEL_CONFIG["model"])
